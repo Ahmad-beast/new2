@@ -66,6 +66,21 @@ function App() {
             />
           </div>
         </Router>
+         </Routes>
+            </main>
+            <Footer />
+            <Toaster 
+              position="top-right"
+              toastOptions={{
+                duration: 4000,
+                style: {
+                  background: 'var(--toast-bg)',
+                  color: 'var(--toast-color)',
+                },
+              }}
+            />
+          </div>
+        </Router>
       </AuthProvider>
     </ThemeProvider>
   );
