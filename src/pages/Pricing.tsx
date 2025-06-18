@@ -296,12 +296,12 @@ const Pricing: React.FC = () => {
             <div
               key={index}
               className={`relative bg-white dark:bg-gray-800 rounded-2xl border ${plan.color} p-4 sm:p-6 lg:p-8 hover:shadow-xl transition-all duration-300 ${
-                plan.popular ? 'transform scale-105' : ''
+                plan.popular ? 'lg:transform lg:scale-105 lg:mt-4 lg:mb-4' : ''
               }`}
             >
               {plan.popular && (
-                <div className="absolute -top-3 sm:-top-4 left-1/2 transform -translate-x-1/2 z-10">
-                  <span className="bg-gradient-to-r from-purple-500 to-pink-500 text-white px-3 sm:px-4 py-1 rounded-full text-xs sm:text-sm font-medium shadow-lg">
+                <div className="absolute -top-3 sm:-top-4 lg:-top-6 left-1/2 transform -translate-x-1/2 z-20">
+                  <span className="bg-gradient-to-r from-purple-500 to-pink-500 text-white px-3 sm:px-4 py-1 sm:py-2 rounded-full text-xs sm:text-sm font-medium shadow-lg whitespace-nowrap">
                     Most Popular
                   </span>
                 </div>
