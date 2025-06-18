@@ -186,8 +186,8 @@ export class ElevenLabsAPI {
       use_speaker_boost: true
     }
   ): Promise<Blob> {
-    // Validate and clean the input text
-    const cleanText = text.trim();
+    // Enhanced text validation and preparation for Urdu support
+    const cleanText = this.prepareTextForAPI(text);
     
     if (!cleanText) {
       throw new Error('Text cannot be empty');
@@ -197,13 +197,19 @@ export class ElevenLabsAPI {
       throw new Error('Text is too long. Maximum 5000 characters allowed.');
     }
 
+    // Detect if text contains Urdu/Arabic characters
+    const containsUrdu = this.containsUrduText(cleanText);
+
     // Log the exact text being processed for debugging
     console.log('🎤 Processing text for speech generation:', {
       originalText: text,
       cleanedText: cleanText,
       textLength: cleanText.length,
       voiceId: voiceId,
-      isApiConfigured: this.isConfigured()
+      isApiConfigured: this.isConfigured(),
+      containsUrdu: containsUrdu,
+      encoding: 'UTF-8',
+      unicodeNormalized: true
     });
 
     // If no API key configured, always use demo mode
@@ -215,15 +221,11 @@ export class ElevenLabsAPI {
     // Try real API call, but fallback to demo on any error
     try {
       console.log('🎤 Attempting ElevenLabs API call...');
-      console.log('📝 Request payload:', {
-        text: cleanText,
-        model_id: 'eleven_monolingual_v1',
-        voice_settings: voiceSettings
-      });
       
+      // Prepare request payload with proper encoding
       const requestPayload = {
-        text: cleanText,
-        model_id: 'eleven_monolingual_v1',
+        text: cleanText, // Use the properly prepared text
+        model_id: containsUrdu ? 'eleven_multilingual_v2' : 'eleven_monolingual_v1', // Use multilingual model for Urdu
         voice_settings: {
           stability: Math.max(0, Math.min(1, voiceSettings.stability)),
           similarity_boost: Math.max(0, Math.min(1, voiceSettings.similarity_boost)),
@@ -232,13 +234,15 @@ export class ElevenLabsAPI {
         }
       };
 
+      console.log('📝 Request payload:', requestPayload);
+      
       const response = await axios.post(
         `${BASE_URL}/text-to-speech/${voiceId}`,
         requestPayload,
         {
           headers: {
             'Accept': 'audio/mpeg',
-            'Content-Type': 'application/json',
+            'Content-Type': 'application/json; charset=UTF-8', // Explicitly set UTF-8 encoding
             'xi-api-key': this.apiKey
           },
           responseType: 'blob',
@@ -250,15 +254,62 @@ export class ElevenLabsAPI {
         throw new Error('Received empty audio response from ElevenLabs');
       }
 
-      console.log('✅ Speech generated successfully with ElevenLabs API');
+      console.log(`✅ Speech generated successfully with ElevenLabs API${containsUrdu ? ' (Urdu text processed)' : ''}`);
       return response.data;
     } catch (error: any) {
       console.warn('⚠️ ElevenLabs API failed, falling back to demo mode:', error.message);
+      
+      // Log specific error details for Urdu text issues
+      if (containsUrdu) {
+        console.warn('⚠️ Urdu text detected in failed API call - this might be a model or encoding issue');
+      }
       
       // Always fallback to demo mode instead of throwing errors
       console.log('🎭 Fallback: Creating demo audio for text:', cleanText);
       return this.createDemoAudio(cleanText);
     }
+  }
+
+  // Helper method to detect Urdu/Arabic text
+  private containsUrduText(text: string): boolean {
+    // Unicode ranges for Urdu/Arabic script
+    const urduArabicRegex = /[\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF\uFB50-\uFDFF\uFE70-\uFEFF]/;
+    return urduArabicRegex.test(text);
+  }
+
+  // Enhanced text preparation method with Urdu support
+  private prepareTextForAPI(inputText: string): string {
+    // Remove only leading/trailing whitespace, preserve internal spacing
+    let cleanedText = inputText.replace(/^\s+|\s+$/g, '');
+    
+    // Normalize Unicode for consistent character representation (NFC normalization)
+    cleanedText = cleanedText.normalize('NFC');
+    
+    // Additional normalization for Arabic/Urdu text
+    if (this.containsUrduText(cleanedText)) {
+      // Remove any problematic zero-width characters that might interfere
+      cleanedText = cleanedText.replace(/[\u200B-\u200D\uFEFF]/g, '');
+      
+      // Ensure proper RTL marks are preserved
+      // Note: We don't remove RTL/LTR marks as they're important for proper text rendering
+    }
+    
+    // Log the text preparation for debugging
+    console.log('📝 Text preparation details:', {
+      originalText: inputText,
+      cleanedText: cleanedText,
+      originalLength: inputText.length,
+      cleanedLength: cleanedText.length,
+      containsUrdu: this.containsUrduText(cleanedText),
+      firstFewChars: cleanedText.substring(0, 20),
+      encoding: 'UTF-8',
+      normalization: 'NFC',
+      unicodePoints: Array.from(cleanedText.substring(0, 10)).map(char => 
+        `${char} (U+${char.charCodeAt(0).toString(16).toUpperCase().padStart(4, '0')})`
+      )
+    });
+    
+    return cleanedText;
   }
 
   private createDemoAudio(text: string): Promise<Blob> {
@@ -278,6 +329,7 @@ export class ElevenLabsAPI {
         // Generate a more speech-like pattern based on the actual text content
         const words = text.toLowerCase().split(/\s+/);
         const totalWords = words.length;
+        const containsUrdu = this.containsUrduText(text);
         
         for (let i = 0; i < numSamples; i++) {
           const t = i / sampleRate;
@@ -297,7 +349,8 @@ export class ElevenLabsAPI {
               return hash + char.charCodeAt(0);
             }, 0);
             
-            const baseFreq = 120 + (wordHash % 100); // Vary base frequency per word
+            // Adjust base frequency for Urdu text (slightly different tonal patterns)
+            const baseFreq = containsUrdu ? 110 + (wordHash % 120) : 120 + (wordHash % 100);
             const vibrato = Math.sin(t * 5) * 8;
             const frequency = baseFreq + vibrato;
             
@@ -315,7 +368,7 @@ export class ElevenLabsAPI {
         
         // Convert to WAV blob
         const wavBlob = this.audioBufferToWav(audioBuffer);
-        console.log('✅ Demo audio created successfully');
+        console.log(`✅ Demo audio created successfully${containsUrdu ? ' (Urdu text simulated)' : ''}`);
         resolve(wavBlob);
       } catch (error) {
         console.error('Error creating demo audio:', error);
