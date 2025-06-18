@@ -19,9 +19,12 @@ import {
   Clock,
   Zap,
   UserX,
-  MessageCircle
+  MessageCircle,
+  Search
 } from 'lucide-react';
 import { elevenLabsApi } from '../services/elevenLabsApi';
+import { collection, addDoc } from 'firebase/firestore';
+import { db } from '../config/firebase';
 import toast from 'react-hot-toast';
 
 interface Voice {
@@ -34,6 +37,7 @@ interface Voice {
     accent?: string;
     age?: string;
     use_case?: string;
+    language?: string;
   };
 }
 
@@ -53,6 +57,24 @@ const Dashboard: React.FC = () => {
   const [showVoiceDropdown, setShowVoiceDropdown] = useState(false);
   const [voiceFilter, setVoiceFilter] = useState('all');
   const [showDeactivatedModal, setShowDeactivatedModal] = useState(false);
+  const [voiceSearchQuery, setVoiceSearchQuery] = useState('');
+
+  // Detect if text contains Urdu/Hindi characters
+  const containsUrduHindi = (text: string): boolean => {
+    // Unicode ranges for Urdu/Arabic and Hindi/Devanagari scripts
+    const urduArabicRegex = /[\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF\uFB50-\uFDFF\uFE70-\uFEFF]/;
+    const hindiDevanagariRegex = /[\u0900-\u097F]/;
+    return urduArabicRegex.test(text) || hindiDevanagariRegex.test(text);
+  };
+
+  const detectTextLanguage = (text: string): 'urdu' | 'hindi' | 'english' => {
+    const urduArabicRegex = /[\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF\uFB50-\uFDFF\uFE70-\uFEFF]/;
+    const hindiDevanagariRegex = /[\u0900-\u097F]/;
+    
+    if (urduArabicRegex.test(text)) return 'urdu';
+    if (hindiDevanagariRegex.test(text)) return 'hindi';
+    return 'english';
+  };
 
   useEffect(() => {
     loadVoices();
@@ -81,6 +103,32 @@ const Dashboard: React.FC = () => {
       toast.error('Failed to load voices. Using demo voices.');
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const logVoiceGeneration = async (voiceData: any) => {
+    try {
+      // Log voice generation to admin panel
+      await addDoc(collection(db, 'voiceGenerations'), {
+        uid: user?.uid,
+        userEmail: user?.email,
+        displayName: userProfile?.displayName,
+        accountStatus: userProfile?.accountStatus || 'free',
+        plan: userProfile?.plan || 'Free',
+        voiceId: selectedVoice?.voice_id,
+        voiceName: selectedVoice?.name,
+        textLength: text.trim().length,
+        textPreview: text.trim().substring(0, 100),
+        generatedAt: new Date(),
+        timestamp: Date.now(),
+        isApiGenerated: elevenLabsApi.isConfigured(),
+        audioSize: voiceData?.size || 0
+      });
+      
+      console.log('✅ Voice generation logged to admin panel');
+    } catch (error) {
+      console.error('❌ Error logging voice generation:', error);
+      // Don't show error to user as this is background logging
     }
   };
 
@@ -152,6 +200,9 @@ const Dashboard: React.FC = () => {
       
       const newAudioUrl = URL.createObjectURL(audioBlob);
       setAudioUrl(newAudioUrl);
+
+      // Log voice generation for admin tracking
+      await logVoiceGeneration(audioBlob);
 
       toast.success(`Voice generated successfully! ${getRemainingVoices()} voices remaining.`, { id: loadingToast });
       console.log('✅ Voice generation completed successfully');
@@ -229,11 +280,27 @@ const Dashboard: React.FC = () => {
   };
 
   const filteredVoices = voices.filter(voice => {
+    // First filter by search query
+    const matchesSearch = voiceSearchQuery === '' || 
+      voice.name.toLowerCase().includes(voiceSearchQuery.toLowerCase()) ||
+      voice.category.toLowerCase().includes(voiceSearchQuery.toLowerCase()) ||
+      voice.description.toLowerCase().includes(voiceSearchQuery.toLowerCase()) ||
+      voice.labels?.accent?.toLowerCase().includes(voiceSearchQuery.toLowerCase()) ||
+      voice.labels?.use_case?.toLowerCase().includes(voiceSearchQuery.toLowerCase()) ||
+      voice.labels?.language?.toLowerCase().includes(voiceSearchQuery.toLowerCase());
+    
+    if (!matchesSearch) return false;
+    
+    // Then filter by category
     if (voiceFilter === 'all') return true;
     if (voiceFilter === 'male') return voice.category.toLowerCase().includes('male') && !voice.category.toLowerCase().includes('female');
     if (voiceFilter === 'female') return voice.category.toLowerCase().includes('female');
     if (voiceFilter === 'american') return voice.labels?.accent?.toLowerCase().includes('american');
     if (voiceFilter === 'british') return voice.labels?.accent?.toLowerCase().includes('british');
+    if (voiceFilter === 'hindi-urdu') return voice.labels?.language?.toLowerCase().includes('hindi') || 
+                                                  voice.labels?.language?.toLowerCase().includes('urdu') || 
+                                                  voice.name.toLowerCase().includes('hindi') || 
+                                                  voice.name.toLowerCase().includes('urdu');
     return true;
   });
 
@@ -279,6 +346,8 @@ const Dashboard: React.FC = () => {
   const isPro = userProfile.accountStatus === 'pro';
   const isUnlimited = voiceLimit === 999999;
   const accountActive = isAccountActive();
+  const detectedLanguage = detectTextLanguage(text);
+  const isUrduHindiText = containsUrduHindi(text);
 
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
@@ -404,6 +473,28 @@ const Dashboard: React.FC = () => {
                   Select Voice Model ({filteredVoices.length} available)
                 </label>
                 
+                {/* Voice Search Bar */}
+                <div className="relative mb-3 sm:mb-4">
+                  <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
+                  <input
+                    type="text"
+                    placeholder="Search voices by name, accent, or use case..."
+                    value={voiceSearchQuery}
+                    onChange={(e) => setVoiceSearchQuery(e.target.value)}
+                    disabled={!accountActive}
+                    className="pl-10 w-full px-3 sm:px-4 py-2 sm:py-3 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:bg-gray-700 dark:text-white transition-colors disabled:opacity-50 disabled:cursor-not-allowed text-sm sm:text-base"
+                  />
+                  {voiceSearchQuery && (
+                    <button
+                      onClick={() => setVoiceSearchQuery('')}
+                      disabled={!accountActive}
+                      className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 disabled:opacity-50"
+                    >
+                      <X className="h-4 w-4" />
+                    </button>
+                  )}
+                </div>
+                
                 {/* Voice Filter */}
                 <div className="flex flex-wrap gap-1 sm:gap-2 mb-3 sm:mb-4">
                   {[
@@ -411,7 +502,8 @@ const Dashboard: React.FC = () => {
                     { key: 'male', label: 'Male' },
                     { key: 'female', label: 'Female' },
                     { key: 'american', label: 'American' },
-                    { key: 'british', label: 'British' }
+                    { key: 'british', label: 'British' },
+                    { key: 'hindi-urdu', label: '🇮🇳🇵🇰 Hindi/Urdu' }
                   ].map(filter => (
                     <button
                       key={filter.key}
@@ -444,6 +536,7 @@ const Dashboard: React.FC = () => {
                         {selectedVoice && (
                           <p className="text-xs sm:text-sm text-gray-500 dark:text-gray-400 truncate">
                             {selectedVoice.category} • {selectedVoice.labels?.accent || 'Unknown accent'}
+                            {selectedVoice.labels?.language && ` • ${selectedVoice.labels.language}`}
                           </p>
                         )}
                       </div>
@@ -453,38 +546,54 @@ const Dashboard: React.FC = () => {
 
                   {showVoiceDropdown && accountActive && (
                     <div className="absolute z-10 w-full mt-2 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-lg shadow-lg max-h-48 sm:max-h-64 overflow-y-auto">
-                      {filteredVoices.map((voice) => (
-                        <button
-                          key={voice.voice_id}
-                          onClick={() => {
-                            setSelectedVoice(voice);
-                            setShowVoiceDropdown(false);
-                          }}
-                          className={`w-full p-3 sm:p-4 text-left hover:bg-gray-50 dark:hover:bg-gray-600 transition-colors border-b border-gray-100 dark:border-gray-600 last:border-b-0 ${
-                            selectedVoice?.voice_id === voice.voice_id
-                              ? 'bg-blue-50 dark:bg-blue-900'
-                              : ''
-                          }`}
-                        >
-                          <div className="flex items-center justify-between">
-                            <div className="min-w-0 flex-1">
-                              <p className="font-medium text-gray-900 dark:text-white text-sm sm:text-base truncate">{voice.name}</p>
-                              <p className="text-xs sm:text-sm text-gray-500 dark:text-gray-400 truncate">
-                                {voice.category} • {voice.labels?.accent || 'Unknown accent'}
-                                {voice.labels?.age && ` • ${voice.labels.age}`}
-                              </p>
-                              <p className="text-xs text-gray-400 dark:text-gray-500 mt-1 line-clamp-2">
-                                {voice.description}
-                              </p>
+                      {filteredVoices.length === 0 ? (
+                        <div className="p-4 text-center text-gray-500 dark:text-gray-400">
+                          <p className="text-sm">No voices found matching your search</p>
+                          <button
+                            onClick={() => {
+                              setVoiceSearchQuery('');
+                              setVoiceFilter('all');
+                            }}
+                            className="text-blue-600 dark:text-blue-400 text-xs mt-1 hover:underline"
+                          >
+                            Clear filters
+                          </button>
+                        </div>
+                      ) : (
+                        filteredVoices.map((voice) => (
+                          <button
+                            key={voice.voice_id}
+                            onClick={() => {
+                              setSelectedVoice(voice);
+                              setShowVoiceDropdown(false);
+                            }}
+                            className={`w-full p-3 sm:p-4 text-left hover:bg-gray-50 dark:hover:bg-gray-600 transition-colors border-b border-gray-100 dark:border-gray-600 last:border-b-0 ${
+                              selectedVoice?.voice_id === voice.voice_id
+                                ? 'bg-blue-50 dark:bg-blue-900'
+                                : ''
+                            }`}
+                          >
+                            <div className="flex items-center justify-between">
+                              <div className="min-w-0 flex-1">
+                                <p className="font-medium text-gray-900 dark:text-white text-sm sm:text-base truncate">{voice.name}</p>
+                                <p className="text-xs sm:text-sm text-gray-500 dark:text-gray-400 truncate">
+                                  {voice.category} • {voice.labels?.accent || 'Unknown accent'}
+                                  {voice.labels?.age && ` • ${voice.labels.age}`}
+                                  {voice.labels?.language && ` • ${voice.labels.language}`}
+                                </p>
+                                <p className="text-xs text-gray-400 dark:text-gray-500 mt-1 line-clamp-2">
+                                  {voice.description}
+                                </p>
+                              </div>
+                              {voice.labels?.use_case && (
+                                <span className="text-xs px-2 py-1 bg-gray-100 dark:bg-gray-600 text-gray-600 dark:text-gray-300 rounded ml-2 flex-shrink-0">
+                                  {voice.labels.use_case}
+                                </span>
+                              )}
                             </div>
-                            {voice.labels?.use_case && (
-                              <span className="text-xs px-2 py-1 bg-gray-100 dark:bg-gray-600 text-gray-600 dark:text-gray-300 rounded ml-2 flex-shrink-0">
-                                {voice.labels.use_case}
-                              </span>
-                            )}
-                          </div>
-                        </button>
-                      ))}
+                          </button>
+                        ))
+                      )}
                     </div>
                   )}
                 </div>
@@ -495,6 +604,11 @@ const Dashboard: React.FC = () => {
                 <div className="flex justify-between items-center mb-3">
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
                     Enter Text to Convert
+                    {isUrduHindiText && (
+                      <span className="ml-2 inline-flex items-center px-2 py-1 rounded-full text-xs bg-green-100 dark:bg-green-900 text-green-800 dark:text-green-200">
+                        {detectedLanguage === 'urdu' ? '🇵🇰 Urdu Detected' : '🇮🇳 Hindi Detected'}
+                      </span>
+                    )}
                   </label>
                   <button
                     onClick={clearText}
@@ -509,6 +623,14 @@ const Dashboard: React.FC = () => {
                   onChange={(e) => setText(e.target.value)}
                   rows={4}
                   disabled={!accountActive}
+                  dir={isUrduHindiText ? (detectedLanguage === 'urdu' ? 'rtl' : 'ltr') : 'ltr'}
+                  style={{
+                    fontFamily: isUrduHindiText 
+                      ? detectedLanguage === 'urdu' 
+                        ? "'Noto Nastaliq Urdu', 'Amiri', serif" 
+                        : "'Noto Sans Devanagari', sans-serif"
+                      : 'inherit'
+                  }}
                   className="w-full px-3 sm:px-4 py-2 sm:py-3 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:bg-gray-700 dark:text-white resize-none text-sm sm:text-base disabled:opacity-50 disabled:cursor-not-allowed"
                   placeholder={accountActive ? "Enter the text you want to convert to speech... (Max 5000 characters)" : "Account deactivated - Cannot generate voices"}
                   maxLength={5000}
@@ -528,6 +650,12 @@ const Dashboard: React.FC = () => {
                 {text.trim() && accountActive && (
                   <div className="mt-2 p-2 bg-gray-50 dark:bg-gray-700 rounded text-xs text-gray-600 dark:text-gray-400">
                     <strong>Preview:</strong> "{text.trim().substring(0, 100)}{text.trim().length > 100 ? '...' : ''}"
+                    {isUrduHindiText && (
+                      <div className="mt-1">
+                        <strong>Language:</strong> {detectedLanguage === 'urdu' ? 'Urdu (اردو)' : detectedLanguage === 'hindi' ? 'Hindi (हिन्दी)' : 'English'}
+                        <span className="ml-2 text-green-600 dark:text-green-400">✓ Multilingual model will be used</span>
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
@@ -573,6 +701,11 @@ const Dashboard: React.FC = () => {
                         <p className="font-medium text-gray-900 dark:text-white text-sm sm:text-base">Voice Generated</p>
                         <p className="text-xs sm:text-sm text-gray-600 dark:text-gray-400 truncate">
                           Voice: {selectedVoice?.name} • Text: "{text.substring(0, 50)}{text.length > 50 ? '...' : ''}"
+                          {isUrduHindiText && (
+                            <span className="ml-2 text-green-600 dark:text-green-400">
+                              ({detectedLanguage === 'urdu' ? 'Urdu' : 'Hindi'})
+                            </span>
+                          )}
                         </p>
                       </div>
                     </div>
