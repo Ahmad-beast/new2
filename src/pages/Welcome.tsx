@@ -1,8 +1,40 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
-import { Play, Headphones, Mic, Sparkles, ArrowRight, Check } from 'lucide-react';
+import { Play, Headphones, Mic, Sparkles, ArrowRight, Check, Users, TrendingUp, Volume2, Star } from 'lucide-react';
 
 const Welcome: React.FC = () => {
+  // Mock statistics data
+  const stats = [
+    {
+      icon: <Users className="h-8 w-8 sm:h-10 lg:h-12 sm:w-10 lg:w-12 text-blue-600" />,
+      number: "15,847",
+      label: "Happy Customers",
+      growth: "+23%",
+      color: "text-blue-600"
+    },
+    {
+      icon: <TrendingUp className="h-8 w-8 sm:h-10 lg:h-12 sm:w-10 lg:w-12 text-green-600" />,
+      number: "89,234",
+      label: "Orders Completed",
+      growth: "+45%",
+      color: "text-green-600"
+    },
+    {
+      icon: <Volume2 className="h-8 w-8 sm:h-10 lg:h-12 sm:w-10 lg:w-12 text-purple-600" />,
+      number: "2.4M+",
+      label: "Voices Generated",
+      growth: "+67%",
+      color: "text-purple-600"
+    },
+    {
+      icon: <Star className="h-8 w-8 sm:h-10 lg:h-12 sm:w-10 lg:w-12 text-yellow-600" />,
+      number: "4.9/5",
+      label: "Customer Rating",
+      growth: "98% satisfaction",
+      color: "text-yellow-600"
+    }
+  ];
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-purple-50 dark:from-gray-900 dark:via-gray-800 dark:to-gray-900">
       {/* Hero Section */}
@@ -48,16 +80,66 @@ const Welcome: React.FC = () => {
             </Link>
           </div>
 
-          {/* Demo Video Placeholder */}
-          <div className="relative max-w-xs sm:max-w-2xl lg:max-w-4xl mx-auto px-4 sm:px-0">
-            <div className="aspect-video bg-gradient-to-br from-gray-100 to-gray-200 dark:from-gray-700 dark:to-gray-800 rounded-lg sm:rounded-xl border-2 border-gray-200 dark:border-gray-600 flex items-center justify-center shadow-xl sm:shadow-2xl">
-              <div className="text-center">
-                <div className="bg-white dark:bg-gray-800 p-4 sm:p-6 rounded-full mb-3 sm:mb-4 mx-auto w-fit shadow-lg">
-                  <Play className="h-8 w-8 sm:h-10 lg:h-12 sm:w-10 lg:w-12 text-blue-600" />
-                </div>
-                <p className="text-gray-600 dark:text-gray-400 font-medium text-sm sm:text-base">
-                  Watch Demo Video
+          {/* Business Statistics Section */}
+          <div className="relative max-w-6xl mx-auto px-4 sm:px-0">
+            <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700 shadow-xl overflow-hidden">
+              {/* Header */}
+              <div className="bg-gradient-to-r from-blue-600 to-purple-600 px-6 sm:px-8 py-4 sm:py-6">
+                <h3 className="text-lg sm:text-xl font-bold text-white text-center">
+                  Trusted by Thousands of Creators Worldwide
+                </h3>
+                <p className="text-blue-100 text-sm sm:text-base text-center mt-1">
+                  Join our growing community of content creators
                 </p>
+              </div>
+
+              {/* Statistics Grid */}
+              <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6 p-6 sm:p-8">
+                {stats.map((stat, index) => (
+                  <div
+                    key={index}
+                    className="text-center group hover:transform hover:scale-105 transition-all duration-300"
+                  >
+                    <div className="flex justify-center mb-3 sm:mb-4">
+                      <div className="bg-gray-50 dark:bg-gray-700 p-3 sm:p-4 rounded-full group-hover:shadow-lg transition-shadow">
+                        {stat.icon}
+                      </div>
+                    </div>
+                    
+                    <div className="space-y-1 sm:space-y-2">
+                      <div className={`text-2xl sm:text-3xl lg:text-4xl font-bold ${stat.color}`}>
+                        {stat.number}
+                      </div>
+                      <div className="text-gray-600 dark:text-gray-400 font-medium text-sm sm:text-base">
+                        {stat.label}
+                      </div>
+                      <div className="text-green-600 dark:text-green-400 text-xs sm:text-sm font-semibold">
+                        {stat.growth}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              {/* Bottom CTA */}
+              <div className="bg-gray-50 dark:bg-gray-700 px-6 sm:px-8 py-4 sm:py-6 border-t border-gray-200 dark:border-gray-600">
+                <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
+                  <div className="text-center sm:text-left">
+                    <p className="text-gray-900 dark:text-white font-semibold text-sm sm:text-base">
+                      Ready to join our success story?
+                    </p>
+                    <p className="text-gray-600 dark:text-gray-400 text-xs sm:text-sm">
+                      Start creating amazing voice content today
+                    </p>
+                  </div>
+                  <Link
+                    to="/login"
+                    className="inline-flex items-center px-4 sm:px-6 py-2 sm:py-3 bg-gradient-to-r from-blue-600 to-purple-600 text-white font-semibold rounded-lg hover:from-blue-700 hover:to-purple-700 transition-all text-sm sm:text-base whitespace-nowrap"
+                  >
+                    Get Started Free
+                    <ArrowRight className="h-4 w-4 ml-2" />
+                  </Link>
+                </div>
               </div>
             </div>
           </div>
