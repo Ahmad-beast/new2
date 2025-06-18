@@ -19,6 +19,7 @@ interface UserProfile {
   upgradedAt?: Date;
   voicesGenerated?: number;
   planExpiry?: Date;
+  status?: 'active' | 'inactive'; // Add status field for account deactivation
 }
 
 interface AuthContextType {
@@ -31,6 +32,7 @@ interface AuthContextType {
   incrementVoiceGeneration: () => Promise<boolean>;
   getRemainingVoices: () => number;
   getVoiceLimit: () => number;
+  isAccountActive: () => boolean; // Add method to check account status
 }
 
 const AuthContext = createContext<AuthContextType>({} as AuthContextType);
@@ -84,7 +86,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
               voicesGenerated: data.voicesGenerated || 0,
               accountStatus: data.accountStatus || 'free',
               plan: data.plan || null,
-              planAmount: data.planAmount || null
+              planAmount: data.planAmount || null,
+              status: data.status || 'active' // Default to active if not set
             } as UserProfile;
             
             setUserProfile(profile);
@@ -104,7 +107,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
               isActive: true,
               createdAt: new Date(),
               accountStatus: 'free',
-              voicesGenerated: 0
+              voicesGenerated: 0,
+              status: 'active' // Default to active for new users
             };
             
             await setDoc(doc(db, 'users', user.uid), {
@@ -130,7 +134,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             isActive: true,
             createdAt: new Date(),
             accountStatus: 'free',
-            voicesGenerated: 0
+            voicesGenerated: 0,
+            status: 'active'
           };
           setUserProfile(fallbackProfile);
         }
@@ -227,8 +232,19 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
+  const isAccountActive = (): boolean => {
+    if (!userProfile) return false;
+    return userProfile.status === 'active' && userProfile.isActive !== false;
+  };
+
   const incrementVoiceGeneration = async (): Promise<boolean> => {
     if (!user || !userProfile) return false;
+
+    // Check if account is active first
+    if (!isAccountActive()) {
+      console.log('❌ Account is deactivated, cannot generate voice');
+      return false;
+    }
 
     // Check plan expiry first
     await checkPlanExpiry();
@@ -273,7 +289,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const getRemainingVoices = (): number => {
-    if (!userProfile) return 0;
+    if (!userProfile || !isAccountActive()) return 0;
     
     const currentVoices = userProfile.voicesGenerated || 0;
     
@@ -287,7 +303,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const getVoiceLimit = (): number => {
-    if (!userProfile) return 5;
+    if (!userProfile || !isAccountActive()) return 0;
     
     if (userProfile.accountStatus === 'pro') {
       const limit = getPlanLimits(userProfile.plan || '', userProfile.planAmount);
@@ -306,7 +322,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     checkPlanExpiry,
     incrementVoiceGeneration,
     getRemainingVoices,
-    getVoiceLimit
+    getVoiceLimit,
+    isAccountActive
   };
 
   return (
