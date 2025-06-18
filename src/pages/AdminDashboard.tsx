@@ -1,1076 +1,992 @@
 import React, { useState, useEffect } from 'react';
-import { useAuth } from '../contexts/AuthContext';
-import { useNavigate } from 'react-router-dom';
 import { 
-  Mic, 
-  Play, 
-  Download, 
-  Volume2, 
-  Settings, 
+  Users, 
   CreditCard, 
-  AlertCircle, 
-  Loader, 
-  Pause,
-  RotateCcw,
-  Info,
-  Crown,
-  ChevronDown,
-  X,
+  TrendingUp, 
+  Search, 
+  Filter, 
+  MoreVertical,
+  CheckCircle,
+  XCircle,
   Clock,
-  Zap,
+  Eye,
   UserX,
-  MessageCircle,
-  Search
+  UserCheck,
+  AlertTriangle,
+  RefreshCw,
+  Mic,
+  Volume2,
+  Calendar,
+  FileText
 } from 'lucide-react';
-import { elevenLabsApi } from '../services/elevenLabsApi';
-import { collection, addDoc } from 'firebase/firestore';
+import { collection, getDocs, doc, updateDoc, query, orderBy, where } from 'firebase/firestore';
 import { db } from '../config/firebase';
 import toast from 'react-hot-toast';
 
-interface Voice {
-  voice_id: string;
-  name: string;
-  category: string;
-  description: string;
-  labels?: {
-    gender?: string;
-    accent?: string;
-    age?: string;
-    use_case?: string;
-  };
+interface User {
+  id: string;
+  uid: string;
+  email: string;
+  displayName: string;
+  accountStatus: 'free' | 'pro';
+  plan?: string;
+  planAmount?: number;
+  voicesGenerated: number;
+  createdAt: Date;
+  upgradedAt?: Date;
+  planExpiry?: Date;
+  isActive: boolean;
+  status?: 'active' | 'inactive';
 }
 
-const Dashboard: React.FC = () => {
-  const { user, userProfile, updateUserProfile, incrementVoiceGeneration, getRemainingVoices, getVoiceLimit, checkPlanExpiry, isAccountActive } = useAuth();
-  const navigate = useNavigate();
-  const [text, setText] = useState('');
-  const [selectedVoice, setSelectedVoice] = useState<Voice | null>(null);
-  const [voices, setVoices] = useState<Voice[]>([]);
-  const [isGenerating, setIsGenerating] = useState(false);
-  const [audioUrl, setAudioUrl] = useState<string | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
-  const [showUpgradeModal, setShowUpgradeModal] = useState(false);
-  const [isPlaying, setIsPlaying] = useState(false);
-  const [audioElement, setAudioElement] = useState<HTMLAudioElement | null>(null);
-  const [showApiInfo, setShowApiInfo] = useState(false);
-  const [showVoiceDropdown, setShowVoiceDropdown] = useState(false);
-  const [voiceFilter, setVoiceFilter] = useState('all');
-  const [showDeactivatedModal, setShowDeactivatedModal] = useState(false);
-  const [voiceSearchQuery, setVoiceSearchQuery] = useState('');
+interface Payment {
+  id: string;
+  uid: string;
+  userEmail: string;
+  plan: string;
+  planDuration: string;
+  amount: number;
+  tid: string;
+  status: 'pending' | 'approved' | 'rejected';
+  createdAt: Date;
+  accountType: string;
+  accountHolder: string;
+  accountNumber: string;
+}
+
+interface VoiceGeneration {
+  id: string;
+  uid: string;
+  userEmail: string;
+  displayName: string;
+  accountStatus: 'free' | 'pro';
+  plan: string;
+  voiceId: string;
+  voiceName: string;
+  textLength: number;
+  textPreview: string;
+  generatedAt: Date;
+  isApiGenerated: boolean;
+  audioSize: number;
+}
+
+const AdminDashboard: React.FC = () => {
+  const [users, setUsers] = useState<User[]>([]);
+  const [payments, setPayments] = useState<Payment[]>([]);
+  const [voiceGenerations, setVoiceGenerations] = useState<VoiceGeneration[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [filterStatus, setFilterStatus] = useState('all');
+  const [selectedUser, setSelectedUser] = useState<User | null>(null);
+  const [showUserModal, setShowUserModal] = useState(false);
+  const [actionLoading, setActionLoading] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState<'users' | 'payments' | 'voices'>('users');
+  const [voiceSearchTerm, setVoiceSearchTerm] = useState('');
+  const [voiceFilterPlan, setVoiceFilterPlan] = useState('all');
 
   useEffect(() => {
-    loadVoices();
-    // Check plan expiry on component mount
-    checkPlanExpiry();
+    loadData();
   }, []);
 
-  // Check if account is active and show modal if not
-  useEffect(() => {
-    if (userProfile && !isAccountActive()) {
-      setShowDeactivatedModal(true);
-    }
-  }, [userProfile, isAccountActive]);
-
-  // Close dropdown when clicking outside
-  useEffect(() => {
-    const handleClickOutside = (event: MouseEvent) => {
-      const target = event.target as Element;
-      if (showVoiceDropdown && !target.closest('.voice-dropdown-container')) {
-        setShowVoiceDropdown(false);
-      }
-    };
-
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => {
-      document.removeEventListener('mousedown', handleClickOutside);
-    };
-  }, [showVoiceDropdown]);
-
-  const loadVoices = async () => {
+  const loadData = async () => {
     try {
-      console.log('🔄 Loading voices...');
-      const voicesData = await elevenLabsApi.getVoices();
-      setVoices(voicesData);
-      if (voicesData.length > 0) {
-        setSelectedVoice(voicesData[0]);
-        console.log(`✅ Loaded ${voicesData.length} voices`);
-      }
+      setLoading(true);
+      await Promise.all([loadUsers(), loadPayments(), loadVoiceGenerations()]);
     } catch (error) {
-      console.error('❌ Error loading voices:', error);
-      toast.error('Failed to load voices. Using demo voices.');
+      console.error('Error loading admin data:', error);
+      toast.error('Failed to load admin data');
     } finally {
-      setIsLoading(false);
+      setLoading(false);
     }
   };
 
-  const logVoiceGeneration = async (voiceData: any) => {
+  const loadUsers = async () => {
     try {
-      // Log voice generation to admin panel
-      await addDoc(collection(db, 'voiceGenerations'), {
-        uid: user?.uid,
-        userEmail: user?.email,
-        displayName: userProfile?.displayName,
-        accountStatus: userProfile?.accountStatus || 'free',
-        plan: userProfile?.plan || 'Free',
-        voiceId: selectedVoice?.voice_id,
-        voiceName: selectedVoice?.name,
-        textLength: text.trim().length,
-        textPreview: text.trim().substring(0, 100),
-        generatedAt: new Date(),
-        timestamp: Date.now(),
-        isApiGenerated: elevenLabsApi.isConfigured(),
-        audioSize: voiceData?.size || 0
+      const usersQuery = query(collection(db, 'users'), orderBy('createdAt', 'desc'));
+      const usersSnapshot = await getDocs(usersQuery);
+      
+      const usersData = usersSnapshot.docs.map(doc => {
+        const data = doc.data();
+        return {
+          id: doc.id,
+          uid: data.uid,
+          email: data.email,
+          displayName: data.displayName,
+          accountStatus: data.accountStatus || 'free',
+          plan: data.plan,
+          planAmount: data.planAmount,
+          voicesGenerated: data.voicesGenerated || 0,
+          createdAt: data.createdAt?.toDate() || new Date(),
+          upgradedAt: data.upgradedAt?.toDate(),
+          planExpiry: data.planExpiry?.toDate(),
+          isActive: data.isActive !== false,
+          status: data.status || 'active'
+        } as User;
       });
       
-      console.log('✅ Voice generation logged to admin panel');
+      setUsers(usersData);
+      console.log(`Loaded ${usersData.length} users`);
     } catch (error) {
-      console.error('❌ Error logging voice generation:', error);
-      // Don't show error to user as this is background logging
+      console.error('Error loading users:', error);
+      toast.error('Failed to load users');
     }
   };
 
-  // Helper function to detect if text contains Urdu/Arabic characters
-  const containsUrduText = (text: string): boolean => {
-    // Unicode ranges for Urdu/Arabic script
-    const urduArabicRegex = /[\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF\uFB50-\uFDFF\uFE70-\uFEFF]/;
-    return urduArabicRegex.test(text);
+  const loadPayments = async () => {
+    try {
+      const paymentsQuery = query(collection(db, 'payments'), orderBy('createdAt', 'desc'));
+      const paymentsSnapshot = await getDocs(paymentsQuery);
+      
+      const paymentsData = paymentsSnapshot.docs.map(doc => {
+        const data = doc.data();
+        return {
+          id: doc.id,
+          uid: data.uid,
+          userEmail: data.userEmail,
+          plan: data.plan,
+          planDuration: data.planDuration,
+          amount: data.amount,
+          tid: data.tid,
+          status: data.status,
+          createdAt: data.createdAt?.toDate() || new Date(),
+          accountType: data.accountType,
+          accountHolder: data.accountHolder,
+          accountNumber: data.accountNumber
+        } as Payment;
+      });
+      
+      setPayments(paymentsData);
+      console.log(`Loaded ${paymentsData.length} payments`);
+    } catch (error) {
+      console.error('Error loading payments:', error);
+      toast.error('Failed to load payments');
+    }
   };
 
-  // Helper function to validate and prepare text for API
-  const prepareTextForAPI = (inputText: string): string => {
-    // Remove only leading/trailing whitespace, preserve internal spacing
-    let cleanedText = inputText.replace(/^\s+|\s+$/g, '');
-    
-    // Normalize Unicode for consistent character representation
-    cleanedText = cleanedText.normalize('NFC');
-    
-    // Log the text preparation for debugging
-    console.log('📝 Text preparation:', {
-      originalText: inputText,
-      cleanedText: cleanedText,
-      originalLength: inputText.length,
-      cleanedLength: cleanedText.length,
-      containsUrdu: containsUrduText(cleanedText),
-      firstFewChars: cleanedText.substring(0, 20),
-      unicodePoints: Array.from(cleanedText.substring(0, 10)).map(char => 
-        `${char} (U+${char.charCodeAt(0).toString(16).toUpperCase().padStart(4, '0')})`
-      )
-    });
-    
-    return cleanedText;
+  const loadVoiceGenerations = async () => {
+    try {
+      const voicesQuery = query(collection(db, 'voiceGenerations'), orderBy('generatedAt', 'desc'));
+      const voicesSnapshot = await getDocs(voicesQuery);
+      
+      const voicesData = voicesSnapshot.docs.map(doc => {
+        const data = doc.data();
+        return {
+          id: doc.id,
+          uid: data.uid,
+          userEmail: data.userEmail,
+          displayName: data.displayName,
+          accountStatus: data.accountStatus || 'free',
+          plan: data.plan || 'Free',
+          voiceId: data.voiceId,
+          voiceName: data.voiceName,
+          textLength: data.textLength || 0,
+          textPreview: data.textPreview || '',
+          generatedAt: data.generatedAt?.toDate() || new Date(),
+          isApiGenerated: data.isApiGenerated || false,
+          audioSize: data.audioSize || 0
+        } as VoiceGeneration;
+      });
+      
+      setVoiceGenerations(voicesData);
+      console.log(`Loaded ${voicesData.length} voice generations`);
+    } catch (error) {
+      console.error('Error loading voice generations:', error);
+      toast.error('Failed to load voice generations');
+    }
   };
 
-  const generateVoice = async () => {
-    // Check if account is active first
-    if (!isAccountActive()) {
-      setShowDeactivatedModal(true);
-      return;
-    }
-
-    // Validate inputs
-    if (!text.trim()) {
-      toast.error('Please enter some text to convert to speech');
-      return;
-    }
-
-    if (!selectedVoice) {
-      toast.error('Please select a voice model');
-      return;
-    }
-
-    if (!userProfile) {
-      toast.error('User profile not loaded');
-      return;
-    }
-
-    // Check if user can generate more voices
-    const canGenerate = await incrementVoiceGeneration();
-    if (!canGenerate) {
-      const remaining = getRemainingVoices();
-      if (remaining === 0) {
-        if (userProfile.accountStatus === 'pro') {
-          toast.error(`You have reached your plan limit. Please upgrade to a higher plan.`);
-        } else {
-          toast.error('You have reached your free generation limit. Please upgrade your plan.');
-        }
-        setShowUpgradeModal(true);
-        return;
-      }
-    }
-
-    // Prepare text for API (with proper Urdu support)
-    const textToGenerate = prepareTextForAPI(text);
+  const handleUserStatusToggle = async (user: User) => {
+    const newStatus = user.status === 'active' ? 'inactive' : 'active';
+    const actionText = newStatus === 'inactive' ? 'Deactivating' : 'Activating';
     
-    // Additional validation for prepared text
-    if (!textToGenerate) {
-      toast.error('Please enter valid text to convert to speech');
-      return;
-    }
-
-    if (textToGenerate.length > 5000) {
-      toast.error('Text is too long. Maximum 5000 characters allowed.');
-      return;
-    }
-
-    // Log the exact text being sent for debugging
-    console.log('🎤 Starting voice generation with:', {
-      originalInput: text,
-      preparedText: textToGenerate,
-      textLength: textToGenerate.length,
-      selectedVoice: selectedVoice.name,
-      voiceId: selectedVoice.voice_id,
-      userVoicesGenerated: userProfile.voicesGenerated,
-      userPlan: userProfile.plan,
-      accountStatus: userProfile.accountStatus,
-      remainingVoices: getRemainingVoices(),
-      isAccountActive: isAccountActive(),
-      containsUrdu: containsUrduText(textToGenerate),
-      encoding: 'UTF-8'
-    });
-
-    setIsGenerating(true);
-    const loadingToast = toast.loading('Generating voice... This may take a few seconds');
+    setActionLoading(user.id);
+    const loadingToast = toast.loading(`${actionText} user account...`);
 
     try {
-      console.log(`🎤 Generating speech for voice: ${selectedVoice.name} with text: "${textToGenerate}"`);
-      
-      // Pass the properly prepared text to the API
-      const audioBlob = await elevenLabsApi.generateSpeech(textToGenerate, selectedVoice.voice_id);
-      
-      // Clean up previous audio URL
-      if (audioUrl) {
-        URL.revokeObjectURL(audioUrl);
-      }
-      
-      const newAudioUrl = URL.createObjectURL(audioBlob);
-      setAudioUrl(newAudioUrl);
+      console.log(`${actionText} user:`, {
+        userId: user.id,
+        uid: user.uid,
+        email: user.email,
+        currentStatus: user.status,
+        newStatus: newStatus
+      });
 
-      // Log voice generation for admin tracking
-      await logVoiceGeneration(audioBlob);
+      const userRef = doc(db, 'users', user.uid);
+      await updateDoc(userRef, {
+        status: newStatus,
+        isActive: newStatus === 'active',
+        lastStatusUpdate: new Date(),
+        updatedBy: 'admin'
+      });
 
-      const isUrdu = containsUrduText(textToGenerate);
-      toast.success(
-        `Voice generated successfully! ${getRemainingVoices()} voices remaining.${isUrdu ? ' (Urdu text processed)' : ''}`, 
-        { id: loadingToast }
+      setUsers(prevUsers => 
+        prevUsers.map(u => 
+          u.id === user.id 
+            ? { ...u, status: newStatus, isActive: newStatus === 'active' }
+            : u
+        )
       );
-      console.log('✅ Voice generation completed successfully');
+
+      const successMessage = newStatus === 'inactive' 
+        ? 'User account deactivated successfully' 
+        : 'User account activated successfully';
+      
+      toast.success(successMessage, { id: loadingToast });
+      
+      console.log(`✅ User ${user.email} ${newStatus === 'inactive' ? 'deactivated' : 'activated'} successfully`);
+      
+      if (showUserModal && selectedUser?.id === user.id) {
+        setShowUserModal(false);
+        setSelectedUser(null);
+      }
+      
     } catch (error: any) {
-      console.error('❌ Voice generation error:', error);
-      
-      // Revert the voice count increment on error
-      if (userProfile.voicesGenerated && userProfile.voicesGenerated > 0) {
-        await updateUserProfile({ voicesGenerated: userProfile.voicesGenerated - 1 });
-      }
-      
-      toast.error(error.message || 'Failed to generate voice. Please try again.', { id: loadingToast });
+      console.error(`❌ Error ${actionText.toLowerCase()} user:`, error);
+      toast.error(`Failed to ${actionText.toLowerCase()} user account. Please try again.`, { id: loadingToast });
     } finally {
-      setIsGenerating(false);
+      setActionLoading(null);
     }
   };
 
-  const downloadAudio = () => {
-    if (!audioUrl) return;
-    
-    const link = document.createElement('a');
-    link.href = audioUrl;
-    // Include the actual text in the filename for better organization
-    const safeText = text.substring(0, 30).replace(/[^a-zA-Z0-9\u0600-\u06FF]/g, '_');
-    link.download = `voice-${selectedVoice?.name || 'generated'}-${safeText}-${Date.now()}.${audioUrl.includes('wav') ? 'wav' : 'mp3'}`;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    toast.success('Audio downloaded successfully!');
-  };
+  const handlePaymentAction = async (payment: Payment, action: 'approve' | 'reject') => {
+    setActionLoading(payment.id);
+    const loadingToast = toast.loading(`${action === 'approve' ? 'Approving' : 'Rejecting'} payment...`);
 
-  const togglePlayPause = () => {
-    if (!audioUrl) return;
-
-    if (!audioElement) {
-      const audio = new Audio(audioUrl);
-      audio.addEventListener('ended', () => setIsPlaying(false));
-      audio.addEventListener('error', () => {
-        toast.error('Error playing audio');
-        setIsPlaying(false);
+    try {
+      const paymentRef = doc(db, 'payments', payment.id);
+      await updateDoc(paymentRef, {
+        status: action === 'approve' ? 'approved' : 'rejected',
+        processedAt: new Date(),
+        processedBy: 'admin'
       });
-      setAudioElement(audio);
-      audio.play();
-      setIsPlaying(true);
-    } else {
-      if (isPlaying) {
-        audioElement.pause();
-        setIsPlaying(false);
-      } else {
-        audioElement.play();
-        setIsPlaying(true);
+
+      if (action === 'approve') {
+        const userRef = doc(db, 'users', payment.uid);
+        const planExpiry = new Date();
+        
+        const durationDays = payment.planDuration === '1 Day' ? 1 :
+                           payment.planDuration === '7 Days' ? 7 :
+                           payment.planDuration === '15 Days' ? 15 :
+                           payment.planDuration === '30 Days' ? 30 : 0;
+        
+        planExpiry.setDate(planExpiry.getDate() + durationDays);
+
+        await updateDoc(userRef, {
+          accountStatus: 'pro',
+          plan: payment.plan,
+          planAmount: payment.amount,
+          planExpiry: planExpiry,
+          upgradedAt: new Date(),
+          voicesGenerated: 0
+        });
+
+        setUsers(prevUsers => 
+          prevUsers.map(user => 
+            user.uid === payment.uid 
+              ? { 
+                  ...user, 
+                  accountStatus: 'pro' as const,
+                  plan: payment.plan,
+                  planAmount: payment.amount,
+                  planExpiry: planExpiry,
+                  upgradedAt: new Date(),
+                  voicesGenerated: 0
+                }
+              : user
+          )
+        );
       }
+
+      setPayments(prevPayments => 
+        prevPayments.map(p => 
+          p.id === payment.id 
+            ? { ...p, status: action === 'approve' ? 'approved' : 'rejected' }
+            : p
+        )
+      );
+
+      toast.success(`Payment ${action === 'approve' ? 'approved' : 'rejected'} successfully!`, { id: loadingToast });
+    } catch (error: any) {
+      console.error(`Error ${action}ing payment:`, error);
+      toast.error(`Failed to ${action} payment. Please try again.`, { id: loadingToast });
+    } finally {
+      setActionLoading(null);
     }
   };
 
-  const resetAudio = () => {
-    if (audioElement) {
-      audioElement.pause();
-      audioElement.currentTime = 0;
-      setIsPlaying(false);
-    }
-  };
-
-  const handleUpgrade = () => {
-    setShowUpgradeModal(false);
-    navigate('/pricing');
-  };
-
-  const clearText = () => {
-    setText('');
-  };
-
-  const handleContactSupport = () => {
-    window.open('https://wa.me/923064482383', '_blank');
-  };
-
-  const filteredVoices = voices.filter(voice => {
-    // First filter by search query
-    const matchesSearch = voiceSearchQuery === '' || 
-      voice.name.toLowerCase().includes(voiceSearchQuery.toLowerCase()) ||
-      voice.category.toLowerCase().includes(voiceSearchQuery.toLowerCase()) ||
-      voice.description.toLowerCase().includes(voiceSearchQuery.toLowerCase()) ||
-      voice.labels?.accent?.toLowerCase().includes(voiceSearchQuery.toLowerCase()) ||
-      voice.labels?.use_case?.toLowerCase().includes(voiceSearchQuery.toLowerCase());
+  const filteredUsers = users.filter(user => {
+    const matchesSearch = user.email.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                         user.displayName.toLowerCase().includes(searchTerm.toLowerCase());
     
-    if (!matchesSearch) return false;
+    if (filterStatus === 'all') return matchesSearch;
+    if (filterStatus === 'active') return matchesSearch && user.status === 'active';
+    if (filterStatus === 'inactive') return matchesSearch && user.status === 'inactive';
+    if (filterStatus === 'pro') return matchesSearch && user.accountStatus === 'pro';
+    if (filterStatus === 'free') return matchesSearch && user.accountStatus === 'free';
     
-    // Then filter by category
-    if (voiceFilter === 'all') return true;
-    if (voiceFilter === 'male') return voice.category.toLowerCase().includes('male') && !voice.category.toLowerCase().includes('female');
-    if (voiceFilter === 'female') return voice.category.toLowerCase().includes('female');
-    if (voiceFilter === 'american') return voice.labels?.accent?.toLowerCase().includes('american');
-    if (voiceFilter === 'british') return voice.labels?.accent?.toLowerCase().includes('british');
-    return true;
+    return matchesSearch;
   });
 
-  const formatPlanExpiry = () => {
-    if (!userProfile?.planExpiry) return null;
-    const now = new Date();
-    const expiry = userProfile.planExpiry;
-    const diffTime = expiry.getTime() - now.getTime();
-    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+  const filteredVoiceGenerations = voiceGenerations.filter(voice => {
+    const matchesSearch = voiceSearchTerm === '' ||
+      voice.userEmail.toLowerCase().includes(voiceSearchTerm.toLowerCase()) ||
+      voice.displayName.toLowerCase().includes(voiceSearchTerm.toLowerCase()) ||
+      voice.voiceName.toLowerCase().includes(voiceSearchTerm.toLowerCase()) ||
+      voice.textPreview.toLowerCase().includes(voiceSearchTerm.toLowerCase());
     
-    if (diffDays <= 0) return 'Expired';
-    if (diffDays === 1) return '1 day left';
-    return `${diffDays} days left`;
-  };
+    if (voiceFilterPlan === 'all') return matchesSearch;
+    if (voiceFilterPlan === 'free') return matchesSearch && voice.accountStatus === 'free';
+    if (voiceFilterPlan === 'pro') return matchesSearch && voice.accountStatus === 'pro';
+    
+    return matchesSearch;
+  });
 
-  if (isLoading) {
+  const pendingPayments = payments.filter(p => p.status === 'pending');
+  const totalUsers = users.length;
+  const activeUsers = users.filter(u => u.status === 'active').length;
+  const inactiveUsers = users.filter(u => u.status === 'inactive').length;
+  const proUsers = users.filter(u => u.accountStatus === 'pro').length;
+  const totalVoiceGenerations = voiceGenerations.length;
+  const freeUserVoices = voiceGenerations.filter(v => v.accountStatus === 'free').length;
+  const proUserVoices = voiceGenerations.filter(v => v.accountStatus === 'pro').length;
+
+  if (loading) {
     return (
       <div className="min-h-screen bg-gray-50 dark:bg-gray-900 flex items-center justify-center">
         <div className="text-center">
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
-          <p className="text-gray-600 dark:text-gray-400">Loading dashboard...</p>
+          <p className="text-gray-600 dark:text-gray-400">Loading admin dashboard...</p>
         </div>
       </div>
     );
   }
-
-  if (!userProfile) {
-    return (
-      <div className="min-h-screen bg-gray-50 dark:bg-gray-900 flex items-center justify-center">
-        <div className="text-center">
-          <AlertCircle className="h-12 w-12 text-red-500 mx-auto mb-4" />
-          <p className="text-gray-600 dark:text-gray-400">Failed to load user profile</p>
-        </div>
-      </div>
-    );
-  }
-
-  const remainingVoices = getRemainingVoices();
-  const voiceLimit = getVoiceLimit();
-  const voicesUsed = userProfile.voicesGenerated || 0;
-  const usagePercentage = voiceLimit === 999999 ? 0 : (voicesUsed / voiceLimit) * 100;
-  const isApiConfigured = elevenLabsApi.isConfigured();
-  const isPro = userProfile.accountStatus === 'pro';
-  const isUnlimited = voiceLimit === 999999;
-  const accountActive = isAccountActive();
-  const hasUrduText = containsUrduText(text);
 
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-8">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {/* Header */}
-        <div className="bg-white dark:bg-gray-800 rounded-xl p-4 sm:p-6 mb-6 sm:mb-8 border border-gray-200 dark:border-gray-700">
-          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center space-y-4 sm:space-y-0">
-            <div className="flex-1">
-              <div className="flex flex-col sm:flex-row sm:items-center mb-2">
-                <h1 className="text-xl sm:text-2xl font-bold text-gray-900 dark:text-white mr-0 sm:mr-3 mb-2 sm:mb-0">
-                  Welcome back, {userProfile.displayName}!
-                </h1>
-                {isPro && (
-                  <div className="flex items-center bg-gradient-to-r from-yellow-400 to-yellow-600 text-white px-2 sm:px-3 py-1 rounded-full w-fit">
-                    <Crown className="h-3 w-3 sm:h-4 sm:w-4 mr-1" />
-                    <span className="text-xs sm:text-sm font-bold">PRO</span>
-                  </div>
-                )}
-                {!accountActive && (
-                  <div className="flex items-center bg-red-500 text-white px-2 sm:px-3 py-1 rounded-full w-fit ml-0 sm:ml-2 mt-2 sm:mt-0">
-                    <UserX className="h-3 w-3 sm:h-4 sm:w-4 mr-1" />
-                    <span className="text-xs sm:text-sm font-bold">DEACTIVATED</span>
-                  </div>
-                )}
-              </div>
-              <p className="text-gray-600 dark:text-gray-400 text-sm sm:text-base">
-                {accountActive ? 'Generate premium AI voices for your content' : 'Your account has been deactivated. Please contact support.'}
-              </p>
-              {userProfile.plan && accountActive && (
-                <div className="flex flex-col sm:flex-row sm:items-center mt-2 space-y-1 sm:space-y-0 sm:space-x-4">
-                  <p className="text-xs sm:text-sm text-blue-600 dark:text-blue-400">
-                    Current Plan: {userProfile.plan}
-                  </p>
-                  {userProfile.planExpiry && (
-                    <div className="flex items-center text-xs sm:text-sm">
-                      <Clock className="h-3 w-3 sm:h-4 sm:w-4 mr-1 text-orange-500" />
-                      <span className="text-orange-600 dark:text-orange-400">
-                        {formatPlanExpiry()}
-                      </span>
-                    </div>
-                  )}
+        <div className="mb-8">
+          <div className="flex justify-between items-center mb-4">
+            <h1 className="text-3xl font-bold text-gray-900 dark:text-white">
+              Admin Dashboard
+            </h1>
+            <button
+              onClick={loadData}
+              disabled={loading}
+              className="flex items-center space-x-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50"
+            >
+              <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
+              <span>Refresh</span>
+            </button>
+          </div>
+          
+          {/* Stats Cards */}
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-6 mb-8">
+            <div className="bg-white dark:bg-gray-800 p-6 rounded-xl border border-gray-200 dark:border-gray-700">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm text-gray-600 dark:text-gray-400">Total Users</p>
+                  <p className="text-2xl font-bold text-gray-900 dark:text-white">{totalUsers}</p>
                 </div>
-              )}
+                <Users className="h-8 w-8 text-blue-600" />
+              </div>
             </div>
-            <div className="text-left sm:text-right">
-              <div className={`px-3 sm:px-4 py-2 rounded-lg ${
-                !accountActive
-                  ? 'bg-red-500 text-white'
-                  : isPro 
-                  ? 'bg-gradient-to-r from-yellow-400 to-yellow-600 text-white'
-                  : 'bg-blue-50 dark:bg-blue-900'
-              }`}>
-                <p className={`text-xs sm:text-sm font-medium ${
-                  !accountActive
-                    ? 'text-white'
-                    : isPro 
-                    ? 'text-white'
-                    : 'text-blue-700 dark:text-blue-300'
-                }`}>
-                  {!accountActive ? 'Account Deactivated' : isPro ? `${userProfile.plan} Plan` : 'Free Plan'}
-                </p>
+            
+            <div className="bg-white dark:bg-gray-800 p-6 rounded-xl border border-gray-200 dark:border-gray-700">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm text-gray-600 dark:text-gray-400">Active Users</p>
+                  <p className="text-2xl font-bold text-green-600">{activeUsers}</p>
+                </div>
+                <UserCheck className="h-8 w-8 text-green-600" />
+              </div>
+            </div>
+            
+            <div className="bg-white dark:bg-gray-800 p-6 rounded-xl border border-gray-200 dark:border-gray-700">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm text-gray-600 dark:text-gray-400">Pro Users</p>
+                  <p className="text-2xl font-bold text-purple-600">{proUsers}</p>
+                </div>
+                <TrendingUp className="h-8 w-8 text-purple-600" />
+              </div>
+            </div>
+            
+            <div className="bg-white dark:bg-gray-800 p-6 rounded-xl border border-gray-200 dark:border-gray-700">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm text-gray-600 dark:text-gray-400">Voice Generations</p>
+                  <p className="text-2xl font-bold text-indigo-600">{totalVoiceGenerations}</p>
+                </div>
+                <Volume2 className="h-8 w-8 text-indigo-600" />
+              </div>
+            </div>
+            
+            <div className="bg-white dark:bg-gray-800 p-6 rounded-xl border border-gray-200 dark:border-gray-700">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm text-gray-600 dark:text-gray-400">Pending Payments</p>
+                  <p className="text-2xl font-bold text-orange-600">{pendingPayments.length}</p>
+                </div>
+                <CreditCard className="h-8 w-8 text-orange-600" />
               </div>
             </div>
           </div>
         </div>
 
-        {/* Account Deactivated Warning */}
-        {!accountActive && (
-          <div className="bg-red-50 dark:bg-red-900 border border-red-200 dark:border-red-700 rounded-xl p-4 sm:p-6 mb-6 sm:mb-8">
-            <div className="flex items-start space-x-3">
-              <UserX className="h-5 w-5 sm:h-6 sm:w-6 text-red-600 dark:text-red-400 flex-shrink-0 mt-0.5" />
-              <div className="flex-1">
-                <h3 className="text-base sm:text-lg font-semibold text-red-800 dark:text-red-200 mb-2">
-                  Account Deactivated
-                </h3>
-                <p className="text-sm sm:text-base text-red-700 dark:text-red-300 mb-4">
-                  Your account has been temporarily deactivated. You cannot generate voices or access premium features until your account is reactivated.
-                </p>
-                <button
-                  onClick={handleContactSupport}
-                  className="inline-flex items-center px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors text-sm sm:text-base"
-                >
-                  <MessageCircle className="h-4 w-4 mr-2" />
-                  Contact Support
-                </button>
-              </div>
+        {/* Pending Payments Alert */}
+        {pendingPayments.length > 0 && (
+          <div className="bg-yellow-50 dark:bg-yellow-900 border border-yellow-200 dark:border-yellow-700 rounded-xl p-4 mb-8">
+            <div className="flex items-center">
+              <AlertTriangle className="h-5 w-5 text-yellow-600 dark:text-yellow-400 mr-2" />
+              <p className="text-yellow-700 dark:text-yellow-300 font-medium">
+                {pendingPayments.length} payment{pendingPayments.length > 1 ? 's' : ''} pending approval
+              </p>
             </div>
           </div>
         )}
 
-        {/* API Status Banner */}
-        {!isApiConfigured && accountActive && (
-          <div className="bg-yellow-50 dark:bg-yellow-900 border border-yellow-200 dark:border-yellow-700 rounded-xl p-3 sm:p-4 mb-4 sm:mb-6">
-            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between space-y-2 sm:space-y-0">
-              <div className="flex items-center">
-                <Info className="h-4 w-4 sm:h-5 sm:w-5 text-yellow-600 dark:text-yellow-400 mr-2 flex-shrink-0" />
-                <p className="text-xs sm:text-sm text-yellow-700 dark:text-yellow-300">
-                  Demo Mode: Add your ElevenLabs API key for real voice generation
-                </p>
-              </div>
+        {/* Tabs */}
+        <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 mb-8">
+          <div className="border-b border-gray-200 dark:border-gray-700">
+            <nav className="flex space-x-8 px-6">
               <button
-                onClick={() => setShowApiInfo(true)}
-                className="text-yellow-600 dark:text-yellow-400 hover:text-yellow-700 dark:hover:text-yellow-300 text-xs sm:text-sm font-medium"
+                onClick={() => setActiveTab('users')}
+                className={`py-4 px-1 border-b-2 font-medium text-sm ${
+                  activeTab === 'users'
+                    ? 'border-blue-500 text-blue-600 dark:text-blue-400'
+                    : 'border-transparent text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-300'
+                }`}
               >
-                Learn More
+                <div className="flex items-center space-x-2">
+                  <Users className="h-4 w-4" />
+                  <span>Users ({totalUsers})</span>
+                </div>
               </button>
-            </div>
+              <button
+                onClick={() => setActiveTab('payments')}
+                className={`py-4 px-1 border-b-2 font-medium text-sm ${
+                  activeTab === 'payments'
+                    ? 'border-blue-500 text-blue-600 dark:text-blue-400'
+                    : 'border-transparent text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-300'
+                }`}
+              >
+                <div className="flex items-center space-x-2">
+                  <CreditCard className="h-4 w-4" />
+                  <span>Payments ({payments.length})</span>
+                </div>
+              </button>
+              <button
+                onClick={() => setActiveTab('voices')}
+                className={`py-4 px-1 border-b-2 font-medium text-sm ${
+                  activeTab === 'voices'
+                    ? 'border-blue-500 text-blue-600 dark:text-blue-400'
+                    : 'border-transparent text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-300'
+                }`}
+              >
+                <div className="flex items-center space-x-2">
+                  <Mic className="h-4 w-4" />
+                  <span>Voice Generations ({totalVoiceGenerations})</span>
+                </div>
+              </button>
+            </nav>
           </div>
-        )}
 
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 sm:gap-8">
-          {/* Voice Generator */}
-          <div className="lg:col-span-2">
-            <div className="bg-white dark:bg-gray-800 rounded-xl p-4 sm:p-6 border border-gray-200 dark:border-gray-700">
-              <h2 className="text-lg sm:text-xl font-bold text-gray-900 dark:text-white mb-4 sm:mb-6 flex items-center">
-                <Mic className="h-5 w-5 sm:h-6 sm:w-6 mr-2 text-blue-600" />
-                Voice Generator
-                {hasUrduText && (
-                  <span className="ml-2 px-2 py-1 bg-green-100 dark:bg-green-900 text-green-700 dark:text-green-300 text-xs rounded-full">
-                    Urdu Detected
-                  </span>
-                )}
-              </h2>
-
-              {/* Enhanced Voice Selection */}
-              <div className="mb-4 sm:mb-6">
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">
-                  Select Voice Model ({filteredVoices.length} available)
-                </label>
-                
-                {/* Voice Search Bar */}
-                <div className="relative mb-3 sm:mb-4">
-                  <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
-                  <input
-                    type="text"
-                    placeholder="Search voices by name, accent, or use case..."
-                    value={voiceSearchQuery}
-                    onChange={(e) => setVoiceSearchQuery(e.target.value)}
-                    disabled={!accountActive}
-                    className="pl-10 w-full px-3 sm:px-4 py-2 sm:py-3 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:bg-gray-700 dark:text-white transition-colors disabled:opacity-50 disabled:cursor-not-allowed text-sm sm:text-base"
-                  />
-                  {voiceSearchQuery && (
-                    <button
-                      onClick={() => setVoiceSearchQuery('')}
-                      disabled={!accountActive}
-                      className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 disabled:opacity-50"
+          {/* Tab Content */}
+          <div className="p-6">
+            {activeTab === 'users' && (
+              <>
+                {/* Search and Filter */}
+                <div className="flex flex-col sm:flex-row gap-4 mb-6">
+                  <div className="relative flex-1">
+                    <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
+                    <input
+                      type="text"
+                      placeholder="Search users by email or name..."
+                      value={searchTerm}
+                      onChange={(e) => setSearchTerm(e.target.value)}
+                      className="pl-10 w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg dark:bg-gray-700 dark:text-white"
+                    />
+                  </div>
+                  
+                  <div className="relative">
+                    <Filter className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
+                    <select
+                      value={filterStatus}
+                      onChange={(e) => setFilterStatus(e.target.value)}
+                      className="pl-10 pr-8 py-2 border border-gray-300 dark:border-gray-600 rounded-lg dark:bg-gray-700 dark:text-white"
                     >
-                      <X className="h-4 w-4" />
-                    </button>
+                      <option value="all">All Users</option>
+                      <option value="active">Active</option>
+                      <option value="inactive">Inactive</option>
+                      <option value="pro">Pro Users</option>
+                      <option value="free">Free Users</option>
+                    </select>
+                  </div>
+                </div>
+
+                {/* Users Table */}
+                <div className="overflow-x-auto">
+                  <table className="w-full">
+                    <thead className="bg-gray-50 dark:bg-gray-700">
+                      <tr>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                          User
+                        </th>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                          Status
+                        </th>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                          Plan
+                        </th>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                          Voices Used
+                        </th>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                          Joined
+                        </th>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                          Actions
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
+                      {filteredUsers.map((user) => (
+                        <tr key={user.id} className="hover:bg-gray-50 dark:hover:bg-gray-700">
+                          <td className="px-6 py-4 whitespace-nowrap">
+                            <div>
+                              <div className="text-sm font-medium text-gray-900 dark:text-white">
+                                {user.displayName}
+                              </div>
+                              <div className="text-sm text-gray-500 dark:text-gray-400">
+                                {user.email}
+                              </div>
+                            </div>
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap">
+                            <div className="flex items-center space-x-2">
+                              <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${
+                                user.status === 'active' 
+                                  ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200'
+                                  : 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200'
+                              }`}>
+                                {user.status === 'active' ? 'Active' : 'Inactive'}
+                              </span>
+                            </div>
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap">
+                            <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${
+                              user.accountStatus === 'pro'
+                                ? 'bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200'
+                                : 'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-300'
+                            }`}>
+                              {user.accountStatus === 'pro' ? user.plan || 'Pro' : 'Free'}
+                            </span>
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-white">
+                            {user.voicesGenerated || 0}
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
+                            {user.createdAt.toLocaleDateString()}
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
+                            <div className="flex items-center space-x-2">
+                              <button
+                                onClick={() => {
+                                  setSelectedUser(user);
+                                  setShowUserModal(true);
+                                }}
+                                className="text-blue-600 hover:text-blue-900 dark:text-blue-400 dark:hover:text-blue-300"
+                              >
+                                <Eye className="h-4 w-4" />
+                              </button>
+                              <button
+                                onClick={() => handleUserStatusToggle(user)}
+                                disabled={actionLoading === user.id}
+                                className={`${
+                                  user.status === 'active'
+                                    ? 'text-red-600 hover:text-red-900 dark:text-red-400 dark:hover:text-red-300'
+                                    : 'text-green-600 hover:text-green-900 dark:text-green-400 dark:hover:text-green-300'
+                                } disabled:opacity-50`}
+                              >
+                                {actionLoading === user.id ? (
+                                  <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-current"></div>
+                                ) : user.status === 'active' ? (
+                                  <UserX className="h-4 w-4" />
+                                ) : (
+                                  <UserCheck className="h-4 w-4" />
+                                )}
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </>
+            )}
+
+            {activeTab === 'payments' && (
+              <div className="overflow-x-auto">
+                <table className="w-full">
+                  <thead className="bg-gray-50 dark:bg-gray-700">
+                    <tr>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                        User
+                      </th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                        Plan
+                      </th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                        Amount
+                      </th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                        Transaction ID
+                      </th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                        Status
+                      </th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                        Date
+                      </th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                        Actions
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
+                    {payments.map((payment) => (
+                      <tr key={payment.id} className="hover:bg-gray-50 dark:hover:bg-gray-700">
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          <div className="text-sm font-medium text-gray-900 dark:text-white">
+                            {payment.userEmail}
+                          </div>
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          <div className="text-sm text-gray-900 dark:text-white">
+                            {payment.plan} ({payment.planDuration})
+                          </div>
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          <div className="text-sm font-medium text-gray-900 dark:text-white">
+                            Rs. {payment.amount}
+                          </div>
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          <div className="text-sm font-mono text-gray-900 dark:text-white">
+                            {payment.tid}
+                          </div>
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${
+                            payment.status === 'approved' 
+                              ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200'
+                              : payment.status === 'rejected'
+                              ? 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200'
+                              : 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200'
+                          }`}>
+                            {payment.status.charAt(0).toUpperCase() + payment.status.slice(1)}
+                          </span>
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
+                          {payment.createdAt.toLocaleDateString()}
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
+                          {payment.status === 'pending' && (
+                            <div className="flex items-center space-x-2">
+                              <button
+                                onClick={() => handlePaymentAction(payment, 'approve')}
+                                disabled={actionLoading === payment.id}
+                                className="text-green-600 hover:text-green-900 dark:text-green-400 dark:hover:text-green-300 disabled:opacity-50"
+                              >
+                                {actionLoading === payment.id ? (
+                                  <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-current"></div>
+                                ) : (
+                                  <CheckCircle className="h-4 w-4" />
+                                )}
+                              </button>
+                              <button
+                                onClick={() => handlePaymentAction(payment, 'reject')}
+                                disabled={actionLoading === payment.id}
+                                className="text-red-600 hover:text-red-900 dark:text-red-400 dark:hover:text-red-300 disabled:opacity-50"
+                              >
+                                <XCircle className="h-4 w-4" />
+                              </button>
+                            </div>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+
+            {activeTab === 'voices' && (
+              <>
+                {/* Voice Generations Search and Filter */}
+                <div className="flex flex-col sm:flex-row gap-4 mb-6">
+                  <div className="relative flex-1">
+                    <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
+                    <input
+                      type="text"
+                      placeholder="Search by user, voice name, or text..."
+                      value={voiceSearchTerm}
+                      onChange={(e) => setVoiceSearchTerm(e.target.value)}
+                      className="pl-10 w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg dark:bg-gray-700 dark:text-white"
+                    />
+                  </div>
+                  
+                  <div className="relative">
+                    <Filter className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
+                    <select
+                      value={voiceFilterPlan}
+                      onChange={(e) => setVoiceFilterPlan(e.target.value)}
+                      className="pl-10 pr-8 py-2 border border-gray-300 dark:border-gray-600 rounded-lg dark:bg-gray-700 dark:text-white"
+                    >
+                      <option value="all">All Plans</option>
+                      <option value="free">Free Users</option>
+                      <option value="pro">Pro Users</option>
+                    </select>
+                  </div>
+                </div>
+
+                {/* Voice Generation Stats */}
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+                  <div className="bg-gray-50 dark:bg-gray-700 p-4 rounded-lg">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="text-sm text-gray-600 dark:text-gray-400">Total Generations</p>
+                        <p className="text-xl font-bold text-gray-900 dark:text-white">{totalVoiceGenerations}</p>
+                      </div>
+                      <Volume2 className="h-6 w-6 text-blue-600" />
+                    </div>
+                  </div>
+                  <div className="bg-gray-50 dark:bg-gray-700 p-4 rounded-lg">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="text-sm text-gray-600 dark:text-gray-400">Free User Voices</p>
+                        <p className="text-xl font-bold text-gray-900 dark:text-white">{freeUserVoices}</p>
+                      </div>
+                      <Users className="h-6 w-6 text-gray-600" />
+                    </div>
+                  </div>
+                  <div className="bg-gray-50 dark:bg-gray-700 p-4 rounded-lg">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="text-sm text-gray-600 dark:text-gray-400">Pro User Voices</p>
+                        <p className="text-xl font-bold text-purple-600">{proUserVoices}</p>
+                      </div>
+                      <TrendingUp className="h-6 w-6 text-purple-600" />
+                    </div>
+                  </div>
+                </div>
+
+                {/* Voice Generations Table */}
+                <div className="overflow-x-auto">
+                  <table className="w-full">
+                    <thead className="bg-gray-50 dark:bg-gray-700">
+                      <tr>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                          User
+                        </th>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                          Plan
+                        </th>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                          Voice Used
+                        </th>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                          Text Preview
+                        </th>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                          Length
+                        </th>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                          Generated
+                        </th>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                          Type
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
+                      {filteredVoiceGenerations.map((voice) => (
+                        <tr key={voice.id} className="hover:bg-gray-50 dark:hover:bg-gray-700">
+                          <td className="px-6 py-4 whitespace-nowrap">
+                            <div>
+                              <div className="text-sm font-medium text-gray-900 dark:text-white">
+                                {voice.displayName}
+                              </div>
+                              <div className="text-sm text-gray-500 dark:text-gray-400">
+                                {voice.userEmail}
+                              </div>
+                            </div>
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap">
+                            <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${
+                              voice.accountStatus === 'pro'
+                                ? 'bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200'
+                                : 'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-300'
+                            }`}>
+                              {voice.plan}
+                            </span>
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap">
+                            <div className="text-sm text-gray-900 dark:text-white">
+                              {voice.voiceName}
+                            </div>
+                          </td>
+                          <td className="px-6 py-4">
+                            <div className="text-sm text-gray-900 dark:text-white max-w-xs truncate">
+                              "{voice.textPreview}"
+                            </div>
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
+                            {voice.textLength} chars
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
+                            <div className="flex items-center space-x-1">
+                              <Calendar className="h-3 w-3" />
+                              <span>{voice.generatedAt.toLocaleDateString()}</span>
+                            </div>
+                            <div className="text-xs text-gray-400">
+                              {voice.generatedAt.toLocaleTimeString()}
+                            </div>
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap">
+                            <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${
+                              voice.isApiGenerated
+                                ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200'
+                                : 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200'
+                            }`}>
+                              {voice.isApiGenerated ? 'API' : 'Demo'}
+                            </span>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                  
+                  {filteredVoiceGenerations.length === 0 && (
+                    <div className="text-center py-8">
+                      <FileText className="h-12 w-12 text-gray-400 mx-auto mb-4" />
+                      <p className="text-gray-500 dark:text-gray-400">No voice generations found</p>
+                    </div>
                   )}
                 </div>
-                
-                {/* Voice Filter */}
-                <div className="flex flex-wrap gap-1 sm:gap-2 mb-3 sm:mb-4">
-                  {[
-                    { key: 'all', label: 'All Voices' },
-                    { key: 'male', label: 'Male' },
-                    { key: 'female', label: 'Female' },
-                    { key: 'american', label: 'American' },
-                    { key: 'british', label: 'British' }
-                  ].map(filter => (
+              </>
+            )}
+          </div>
+        </div>
+
+        {/* User Details Modal */}
+        {showUserModal && selectedUser && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+            <div className="bg-white dark:bg-gray-800 rounded-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+              <div className="p-6">
+                <div className="flex justify-between items-center mb-6">
+                  <h3 className="text-xl font-bold text-gray-900 dark:text-white">
+                    User Details
+                  </h3>
+                  <button
+                    onClick={() => setShowUserModal(false)}
+                    className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
+                  >
+                    <XCircle className="h-6 w-6" />
+                  </button>
+                </div>
+
+                <div className="space-y-4">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                        Display Name
+                      </label>
+                      <p className="text-gray-900 dark:text-white">{selectedUser.displayName}</p>
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                        Email
+                      </label>
+                      <p className="text-gray-900 dark:text-white">{selectedUser.email}</p>
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                        Account Status
+                      </label>
+                      <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${
+                        selectedUser.status === 'active' 
+                          ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200'
+                          : 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200'
+                      }`}>
+                        {selectedUser.status === 'active' ? 'Active' : 'Inactive'}
+                      </span>
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                        Plan
+                      </label>
+                      <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${
+                        selectedUser.accountStatus === 'pro'
+                          ? 'bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200'
+                          : 'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-300'
+                      }`}>
+                        {selectedUser.accountStatus === 'pro' ? selectedUser.plan || 'Pro' : 'Free'}
+                      </span>
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                        Voices Generated
+                      </label>
+                      <p className="text-gray-900 dark:text-white">{selectedUser.voicesGenerated || 0}</p>
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                        Joined Date
+                      </label>
+                      <p className="text-gray-900 dark:text-white">{selectedUser.createdAt.toLocaleDateString()}</p>
+                    </div>
+                    {selectedUser.planExpiry && (
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                          Plan Expiry
+                        </label>
+                        <p className="text-gray-900 dark:text-white">{selectedUser.planExpiry.toLocaleDateString()}</p>
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="pt-4 border-t border-gray-200 dark:border-gray-700">
                     <button
-                      key={filter.key}
-                      onClick={() => setVoiceFilter(filter.key)}
-                      disabled={!accountActive}
-                      className={`px-2 sm:px-3 py-1 rounded-full text-xs font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
-                        voiceFilter === filter.key
-                          ? 'bg-blue-600 text-white'
-                          : 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'
+                      onClick={() => handleUserStatusToggle(selectedUser)}
+                      disabled={actionLoading === selectedUser.id}
+                      className={`w-full flex items-center justify-center space-x-2 px-4 py-2 rounded-lg font-medium transition-colors disabled:opacity-50 ${
+                        selectedUser.status === 'active'
+                          ? 'bg-red-600 text-white hover:bg-red-700'
+                          : 'bg-green-600 text-white hover:bg-green-700'
                       }`}
                     >
-                      {filter.label}
-                    </button>
-                  ))}
-                </div>
-
-                {/* Voice Dropdown */}
-                <div className="relative voice-dropdown-container">
-                  <button
-                    onClick={() => accountActive && setShowVoiceDropdown(!showVoiceDropdown)}
-                    disabled={!accountActive}
-                    className="w-full p-3 sm:p-4 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-left flex items-center justify-between hover:border-gray-400 dark:hover:border-gray-500 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    <div className="flex items-center min-w-0 flex-1">
-                      <Volume2 className="h-4 w-4 sm:h-5 sm:w-5 text-blue-600 mr-2 sm:mr-3 flex-shrink-0" />
-                      <div className="min-w-0 flex-1">
-                        <p className="font-medium text-gray-900 dark:text-white text-sm sm:text-base truncate">
-                          {selectedVoice?.name || 'Select a voice'}
-                        </p>
-                        {selectedVoice && (
-                          <p className="text-xs sm:text-sm text-gray-500 dark:text-gray-400 truncate">
-                            {selectedVoice.category} • {selectedVoice.labels?.accent || 'Unknown accent'}
-                          </p>
-                        )}
-                      </div>
-                    </div>
-                    <ChevronDown className={`h-4 w-4 sm:h-5 sm:w-5 text-gray-400 transition-transform flex-shrink-0 ml-2 ${showVoiceDropdown ? 'rotate-180' : ''}`} />
-                  </button>
-
-                  {showVoiceDropdown && accountActive && (
-                    <div className="absolute z-50 w-full mt-2 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-lg shadow-xl max-h-48 sm:max-h-64 overflow-y-auto">
-                      {filteredVoices.length === 0 ? (
-                        <div className="p-4 text-center text-gray-500 dark:text-gray-400">
-                          <p className="text-sm">No voices found matching your search</p>
-                          <button
-                            onClick={() => {
-                              setVoiceSearchQuery('');
-                              setVoiceFilter('all');
-                            }}
-                            className="text-blue-600 dark:text-blue-400 text-xs mt-1 hover:underline"
-                          >
-                            Clear filters
-                          </button>
-                        </div>
+                      {actionLoading === selectedUser.id ? (
+                        <>
+                          <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                          <span>{selectedUser.status === 'active' ? 'Deactivating...' : 'Activating...'}</span>
+                        </>
                       ) : (
-                        filteredVoices.map((voice) => (
-                          <button
-                            key={voice.voice_id}
-                            onClick={() => {
-                              setSelectedVoice(voice);
-                              setShowVoiceDropdown(false);
-                            }}
-                            className={`w-full p-3 sm:p-4 text-left hover:bg-gray-50 dark:hover:bg-gray-600 transition-colors border-b border-gray-100 dark:border-gray-600 last:border-b-0 ${
-                              selectedVoice?.voice_id === voice.voice_id
-                                ? 'bg-blue-50 dark:bg-blue-900'
-                                : ''
-                            }`}
-                          >
-                            <div className="flex items-center justify-between">
-                              <div className="min-w-0 flex-1">
-                                <p className="font-medium text-gray-900 dark:text-white text-sm sm:text-base truncate">{voice.name}</p>
-                                <p className="text-xs sm:text-sm text-gray-500 dark:text-gray-400 truncate">
-                                  {voice.category} • {voice.labels?.accent || 'Unknown accent'}
-                                  {voice.labels?.age && ` • ${voice.labels.age}`}
-                                </p>
-                                <p className="text-xs text-gray-400 dark:text-gray-500 mt-1 line-clamp-2">
-                                  {voice.description}
-                                </p>
-                              </div>
-                              {voice.labels?.use_case && (
-                                <span className="text-xs px-2 py-1 bg-gray-100 dark:bg-gray-600 text-gray-600 dark:text-gray-300 rounded ml-2 flex-shrink-0">
-                                  {voice.labels.use_case}
-                                </span>
-                              )}
-                            </div>
-                          </button>
-                        ))
+                        <>
+                          {selectedUser.status === 'active' ? (
+                            <UserX className="h-4 w-4" />
+                          ) : (
+                            <UserCheck className="h-4 w-4" />
+                          )}
+                          <span>{selectedUser.status === 'active' ? 'Deactivate Account' : 'Activate Account'}</span>
+                        </>
                       )}
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              {/* Text Input with Urdu Support */}
-              <div className="mb-4 sm:mb-6">
-                <div className="flex justify-between items-center mb-3">
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-                    Enter Text to Convert
-                    {hasUrduText && (
-                      <span className="ml-2 text-xs text-green-600 dark:text-green-400">
-                        (Urdu text detected)
-                      </span>
-                    )}
-                  </label>
-                  <button
-                    onClick={clearText}
-                    disabled={!accountActive}
-                    className="text-xs sm:text-sm text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-300 disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    Clear
-                  </button>
-                </div>
-                <textarea
-                  value={text}
-                  onChange={(e) => setText(e.target.value)}
-                  rows={4}
-                  disabled={!accountActive}
-                  dir={hasUrduText ? 'rtl' : 'ltr'}
-                  lang={hasUrduText ? 'ur' : 'en'}
-                  style={{
-                    fontFamily: hasUrduText 
-                      ? "'Noto Nastaliq Urdu', 'Jameel Noori Nastaleeq', 'Pak Nastaleeq', serif" 
-                      : "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif"
-                  }}
-                  className="w-full px-3 sm:px-4 py-2 sm:py-3 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:bg-gray-700 dark:text-white resize-none text-sm sm:text-base disabled:opacity-50 disabled:cursor-not-allowed"
-                  placeholder={accountActive ? "Enter the text you want to convert to speech... (Max 5000 characters)\n\nاردو متن کے لیے یہاں ٹائپ کریں..." : "Account deactivated - Cannot generate voices"}
-                  maxLength={5000}
-                />
-                <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mt-2 space-y-1 sm:space-y-0">
-                  <p className="text-xs sm:text-sm text-gray-500 dark:text-gray-400">
-                    {text.length}/5000 characters
-                    {hasUrduText && (
-                      <span className="ml-2 text-green-600 dark:text-green-400">
-                        • Urdu/Arabic script detected
-                      </span>
-                    )}
-                  </p>
-                  {text.length > 4500 && (
-                    <p className="text-xs sm:text-sm text-orange-600 dark:text-orange-400">
-                      Approaching character limit
-                    </p>
-                  )}
-                </div>
-                
-                {/* Debug info for text input */}
-                {text.trim() && accountActive && (
-                  <div className="mt-2 p-2 bg-gray-50 dark:bg-gray-700 rounded text-xs text-gray-600 dark:text-gray-400">
-                    <strong>Preview:</strong> "{text.trim().substring(0, 100)}{text.trim().length > 100 ? '...' : ''}"
-                    {hasUrduText && (
-                      <div className="mt-1">
-                        <strong>Text Direction:</strong> RTL (Right-to-Left) • 
-                        <strong> Encoding:</strong> UTF-8 • 
-                        <strong> Script:</strong> Arabic/Urdu
-                      </div>
-                    )}
-                  </div>
-                )}
-              </div>
-
-              {/* Generate Button */}
-              <button
-                onClick={generateVoice}
-                disabled={isGenerating || !text.trim() || !selectedVoice || remainingVoices === 0 || !accountActive}
-                className="w-full bg-gradient-to-r from-blue-600 to-purple-600 text-white py-2 sm:py-3 px-4 sm:px-6 rounded-lg font-semibold hover:from-blue-700 hover:to-purple-700 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center text-sm sm:text-base"
-              >
-                {!accountActive ? (
-                  <>
-                    <UserX className="h-4 w-4 sm:h-5 sm:w-5 mr-2" />
-                    Account Deactivated
-                  </>
-                ) : isGenerating ? (
-                  <>
-                    <Loader className="h-4 w-4 sm:h-5 sm:w-5 animate-spin mr-2" />
-                    Generating Voice...
-                  </>
-                ) : remainingVoices === 0 ? (
-                  <>
-                    <AlertCircle className="h-4 w-4 sm:h-5 sm:w-5 mr-2" />
-                    Limit Reached - Upgrade Plan
-                  </>
-                ) : (
-                  <>
-                    <Volume2 className="h-4 w-4 sm:h-5 sm:w-5 mr-2" />
-                    Generate Voice ({remainingVoices} left)
-                    {hasUrduText && <span className="ml-1">🇵🇰</span>}
-                  </>
-                )}
-              </button>
-
-              {/* Audio Player */}
-              {audioUrl && accountActive && (
-                <div className="mt-4 sm:mt-6 p-3 sm:p-4 bg-gray-50 dark:bg-gray-700 rounded-lg border border-gray-200 dark:border-gray-600">
-                  <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between mb-3 sm:mb-4 space-y-3 sm:space-y-0">
-                    <div className="flex items-center space-x-2 sm:space-x-3 min-w-0 flex-1">
-                      <div className="bg-green-100 dark:bg-green-900 p-2 rounded-full flex-shrink-0">
-                        <Volume2 className="h-4 w-4 sm:h-5 sm:w-5 text-green-600 dark:text-green-400" />
-                      </div>
-                      <div className="min-w-0 flex-1">
-                        <p className="font-medium text-gray-900 dark:text-white text-sm sm:text-base">
-                          Voice Generated
-                          {hasUrduText && <span className="ml-1 text-green-600">🇵🇰</span>}
-                        </p>
-                        <p className="text-xs sm:text-sm text-gray-600 dark:text-gray-400 truncate">
-                          Voice: {selectedVoice?.name} • Text: "{text.substring(0, 50)}{text.length > 50 ? '...' : ''}"
-                        </p>
-                      </div>
-                    </div>
-                    <div className="flex space-x-2 w-full sm:w-auto">
-                      <button
-                        onClick={togglePlayPause}
-                        className="bg-blue-600 text-white p-2 rounded-lg hover:bg-blue-700 transition-colors flex-shrink-0"
-                      >
-                        {isPlaying ? <Pause className="h-3 w-3 sm:h-4 sm:w-4" /> : <Play className="h-3 w-3 sm:h-4 sm:w-4" />}
-                      </button>
-                      <button
-                        onClick={resetAudio}
-                        className="bg-gray-600 text-white p-2 rounded-lg hover:bg-gray-700 transition-colors flex-shrink-0"
-                      >
-                        <RotateCcw className="h-3 w-3 sm:h-4 sm:w-4" />
-                      </button>
-                      <button
-                        onClick={downloadAudio}
-                        className="bg-green-600 text-white px-3 sm:px-4 py-2 rounded-lg hover:bg-green-700 transition-colors flex items-center space-x-1 sm:space-x-2 flex-1 sm:flex-initial justify-center"
-                      >
-                        <Download className="h-3 w-3 sm:h-4 sm:w-4" />
-                        <span className="text-xs sm:text-sm">Download</span>
-                      </button>
-                    </div>
-                  </div>
-                  <audio controls className="w-full" src={audioUrl}>
-                    Your browser does not support the audio element.
-                  </audio>
-                </div>
-              )}
-            </div>
-          </div>
-
-          {/* Sidebar */}
-          <div className="space-y-4 sm:space-y-6">
-            {/* Usage Stats */}
-            <div className="bg-white dark:bg-gray-800 rounded-xl p-4 sm:p-6 border border-gray-200 dark:border-gray-700">
-              <h3 className="text-base sm:text-lg font-bold text-gray-900 dark:text-white mb-3 sm:mb-4">Usage Statistics</h3>
-              
-              <div className="space-y-3 sm:space-y-4">
-                <div>
-                  <div className="flex justify-between text-sm mb-2">
-                    <span className="text-gray-600 dark:text-gray-400">Voice Generations</span>
-                    <span className="font-medium text-gray-900 dark:text-white">
-                      {voicesUsed}/{isUnlimited ? '∞' : voiceLimit}
-                    </span>
-                  </div>
-                  
-                  {!isUnlimited && (
-                    <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2">
-                      <div
-                        className={`h-2 rounded-full transition-all ${
-                          !accountActive
-                            ? 'bg-red-500'
-                            : usagePercentage >= 100 
-                            ? 'bg-red-500' 
-                            : usagePercentage >= 80 
-                            ? 'bg-yellow-500' 
-                            : 'bg-gradient-to-r from-blue-500 to-purple-500'
-                        }`}
-                        style={{ width: `${Math.min(usagePercentage, 100)}%` }}
-                      ></div>
-                    </div>
-                  )}
-                  
-                  {isUnlimited && accountActive ? (
-                    <div className="text-center py-2">
-                      <div className="flex items-center justify-center text-green-600 dark:text-green-400">
-                        <Zap className="h-4 w-4 mr-1" />
-                        <span className="text-sm font-medium">Unlimited Generations</span>
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="flex justify-between text-xs mt-1">
-                      <span className="text-gray-500 dark:text-gray-400">
-                        {accountActive ? `${remainingVoices} remaining` : 'Account deactivated'}
-                      </span>
-                      {!accountActive ? (
-                        <span className="text-red-600 dark:text-red-400 font-medium">
-                          No access
-                        </span>
-                      ) : usagePercentage >= 100 && (
-                        <span className="text-red-600 dark:text-red-400 font-medium">
-                          Limit reached
-                        </span>
-                      )}
-                    </div>
-                  )}
-                </div>
-
-                <div className="pt-3 sm:pt-4 border-t border-gray-200 dark:border-gray-700">
-                  <p className="text-sm text-gray-600 dark:text-gray-400 mb-2">Current Plan</p>
-                  <div className="flex items-center justify-between">
-                    <span className={`px-2 py-1 rounded text-xs font-medium ${
-                      !accountActive
-                        ? 'bg-red-500 text-white'
-                        : isPro
-                        ? 'bg-gradient-to-r from-yellow-400 to-yellow-600 text-white'
-                        : 'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-300'
-                    }`}>
-                      {!accountActive ? 'Deactivated' : isPro ? userProfile.plan || 'Premium' : 'Free'}
-                    </span>
-                    {accountActive && !isPro && (
-                      <button 
-                        onClick={() => setShowUpgradeModal(true)}
-                        className="text-blue-600 dark:text-blue-400 text-xs sm:text-sm font-medium hover:text-blue-700 dark:hover:text-blue-300"
-                      >
-                        Upgrade
-                      </button>
-                    )}
-                  </div>
-                  
-                  {isPro && userProfile.planExpiry && accountActive && (
-                    <div className="mt-2 flex items-center text-xs text-orange-600 dark:text-orange-400">
-                      <Clock className="h-3 w-3 mr-1" />
-                      <span>{formatPlanExpiry()}</span>
-                    </div>
-                  )}
-                </div>
-              </div>
-            </div>
-
-            {/* Quick Actions */}
-            <div className="bg-white dark:bg-gray-800 rounded-xl p-4 sm:p-6 border border-gray-200 dark:border-gray-700">
-              <h3 className="text-base sm:text-lg font-bold text-gray-900 dark:text-white mb-3 sm:mb-4">Quick Actions</h3>
-              
-              <div className="space-y-2 sm:space-y-3">
-                {!accountActive ? (
-                  <button 
-                    onClick={handleContactSupport}
-                    className="w-full flex items-center space-x-2 sm:space-x-3 p-2 sm:p-3 bg-red-50 dark:bg-red-900 rounded-lg hover:bg-red-100 dark:hover:bg-red-800 transition-colors"
-                  >
-                    <MessageCircle className="h-4 w-4 sm:h-5 sm:w-5 text-red-600" />
-                    <span className="text-red-700 dark:text-red-300 text-sm sm:text-base">
-                      Contact Support
-                    </span>
-                  </button>
-                ) : (
-                  <>
-                    <button 
-                      onClick={() => setShowUpgradeModal(true)}
-                      className="w-full flex items-center space-x-2 sm:space-x-3 p-2 sm:p-3 bg-gray-50 dark:bg-gray-700 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-600 transition-colors"
-                    >
-                      <CreditCard className="h-4 w-4 sm:h-5 sm:w-5 text-blue-600" />
-                      <span className="text-gray-700 dark:text-gray-300 text-sm sm:text-base">
-                        {isPro ? 'Upgrade Plan' : 'View Plans'}
-                      </span>
                     </button>
-                    
-                    <button className="w-full flex items-center space-x-2 sm:space-x-3 p-2 sm:p-3 bg-gray-50 dark:bg-gray-700 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-600 transition-colors">
-                      <Settings className="h-4 w-4 sm:h-5 sm:w-5 text-gray-600" />
-                      <span className="text-gray-700 dark:text-gray-300 text-sm sm:text-base">Voice Settings</span>
-                    </button>
-                  </>
-                )}
-              </div>
-            </div>
-
-            {/* Upgrade CTA or Support CTA */}
-            {!accountActive ? (
-              <div className="bg-gradient-to-r from-red-600 to-red-700 rounded-xl p-4 sm:p-6 text-white">
-                <h3 className="text-base sm:text-lg font-bold mb-2">
-                  Account Deactivated
-                </h3>
-                <p className="text-red-100 text-xs sm:text-sm mb-3 sm:mb-4">
-                  Your account has been deactivated. Please contact our support team to resolve this issue and regain access to your account.
-                </p>
-                <button 
-                  onClick={handleContactSupport}
-                  className="bg-white text-red-600 px-3 sm:px-4 py-2 rounded-lg font-semibold hover:bg-gray-100 transition-colors text-sm sm:text-base w-full sm:w-auto"
-                >
-                  Contact Support
-                </button>
-              </div>
-            ) : ((!isPro || remainingVoices === 0) && (
-              <div className="bg-gradient-to-r from-blue-600 to-purple-600 rounded-xl p-4 sm:p-6 text-white">
-                <h3 className="text-base sm:text-lg font-bold mb-2">
-                  {remainingVoices === 0 ? 'Limit Reached!' : 'Unlock Premium Features'}
-                </h3>
-                <p className="text-blue-100 text-xs sm:text-sm mb-3 sm:mb-4">
-                  {remainingVoices === 0 
-                    ? 'Upgrade to continue generating voices with unlimited access'
-                    : 'Get unlimited voice generations and access to premium voice models'
-                  }
-                </p>
-                <button 
-                  onClick={handleUpgrade}
-                  className="bg-white text-blue-600 px-3 sm:px-4 py-2 rounded-lg font-semibold hover:bg-gray-100 transition-colors text-sm sm:text-base w-full sm:w-auto"
-                >
-                  {remainingVoices === 0 ? 'Upgrade Now' : 'View Plans'}
-                </button>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        {/* Account Deactivated Modal */}
-        {showDeactivatedModal && (
-          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-            <div className="bg-white dark:bg-gray-800 rounded-xl p-4 sm:p-6 w-full max-w-md mx-4">
-              <div className="flex justify-between items-center mb-4">
-                <h3 className="text-lg font-bold text-gray-900 dark:text-white">
-                  Account Deactivated
-                </h3>
-                <button
-                  onClick={() => setShowDeactivatedModal(false)}
-                  className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
-                >
-                  <X className="h-5 w-5" />
-                </button>
-              </div>
-              
-              <div className="flex items-center space-x-3 mb-4">
-                <UserX className="h-8 w-8 text-red-500" />
-                <div>
-                  <p className="text-gray-900 dark:text-white font-medium">
-                    Your account has been deactivated
-                  </p>
-                  <p className="text-sm text-gray-600 dark:text-gray-400">
-                    Please contact support to resolve this issue
-                  </p>
+                  </div>
                 </div>
               </div>
-              
-              <p className="text-gray-600 dark:text-gray-400 mb-6 text-sm sm:text-base">
-                You cannot access voice generation features while your account is deactivated. Our support team can help you understand the reason and guide you through the reactivation process.
-              </p>
-              
-              <div className="flex flex-col sm:flex-row space-y-2 sm:space-y-0 sm:space-x-3">
-                <button
-                  onClick={handleContactSupport}
-                  className="flex-1 bg-red-600 text-white py-2 px-4 rounded-lg hover:bg-red-700 transition-colors text-sm sm:text-base flex items-center justify-center"
-                >
-                  <MessageCircle className="h-4 w-4 mr-2" />
-                  Contact Support
-                </button>
-                <button
-                  onClick={() => setShowDeactivatedModal(false)}
-                  className="flex-1 bg-gray-300 dark:bg-gray-600 text-gray-700 dark:text-gray-300 py-2 px-4 rounded-lg hover:bg-gray-400 dark:hover:bg-gray-500 transition-colors text-sm sm:text-base"
-                >
-                  Close
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* Upgrade Modal */}
-        {showUpgradeModal && (
-          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-            <div className="bg-white dark:bg-gray-800 rounded-xl p-4 sm:p-6 w-full max-w-md mx-4">
-              <div className="flex justify-between items-center mb-4">
-                <h3 className="text-lg font-bold text-gray-900 dark:text-white">
-                  {remainingVoices === 0 ? 'Voice Limit Reached' : 'Upgrade Required'}
-                </h3>
-                <button
-                  onClick={() => setShowUpgradeModal(false)}
-                  className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
-                >
-                  <X className="h-5 w-5" />
-                </button>
-              </div>
-              <p className="text-gray-600 dark:text-gray-400 mb-6 text-sm sm:text-base">
-                {remainingVoices === 0 
-                  ? `You've used all ${voicesUsed} voices in your ${isPro ? userProfile.plan : 'free'} plan. Upgrade to continue creating amazing voice content!`
-                  : "Upgrade to get more voice generations and access to premium features!"
-                }
-              </p>
-              <div className="flex flex-col sm:flex-row space-y-2 sm:space-y-0 sm:space-x-3">
-                <button
-                  onClick={handleUpgrade}
-                  className="flex-1 bg-blue-600 text-white py-2 px-4 rounded-lg hover:bg-blue-700 transition-colors text-sm sm:text-base"
-                >
-                  View Pricing Plans
-                </button>
-                <button
-                  onClick={() => setShowUpgradeModal(false)}
-                  className="flex-1 bg-gray-300 dark:bg-gray-600 text-gray-700 dark:text-gray-300 py-2 px-4 rounded-lg hover:bg-gray-400 dark:hover:bg-gray-500 transition-colors text-sm sm:text-base"
-                >
-                  Cancel
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* API Info Modal */}
-        {showApiInfo && (
-          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-            <div className="bg-white dark:bg-gray-800 rounded-xl p-4 sm:p-6 w-full max-w-lg mx-4">
-              <div className="flex justify-between items-center mb-4">
-                <h3 className="text-lg font-bold text-gray-900 dark:text-white">ElevenLabs API Setup</h3>
-                <button
-                  onClick={() => setShowApiInfo(false)}
-                  className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
-                >
-                  <X className="h-5 w-5" />
-                </button>
-              </div>
-              <div className="space-y-4 text-sm text-gray-600 dark:text-gray-400">
-                <p>To use real ElevenLabs voices:</p>
-                <ol className="list-decimal list-inside space-y-2">
-                  <li>Sign up at <a href="https://elevenlabs.io" target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">elevenlabs.io</a></li>
-                  <li>Get your API key from your profile settings</li>
-                  <li>Add it to your .env file as VITE_ELEVENLABS_API_KEY</li>
-                  <li>Restart the development server</li>
-                </ol>
-                <p className="text-yellow-600 dark:text-yellow-400">
-                  Currently using demo mode with synthetic audio generation.
-                </p>
-              </div>
-              <button
-                onClick={() => setShowApiInfo(false)}
-                className="mt-4 w-full bg-gray-300 dark:bg-gray-600 text-gray-700 dark:text-gray-300 py-2 px-4 rounded-lg hover:bg-gray-400 dark:hover:bg-gray-500 transition-colors"
-              >
-                Close
-              </button>
             </div>
           </div>
         )}
@@ -1079,4 +995,4 @@ const Dashboard: React.FC = () => {
   );
 };
 
-export default Dashboard;
+export default AdminDashboard;
