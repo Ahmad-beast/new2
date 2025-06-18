@@ -103,9 +103,6 @@ const AdminAccess: React.FC = () => {
                   Demo Access
                 </span>
               </div>
-              <p className="text-xs text-yellow-700 dark:text-yellow-300">
-                <strong>Password:</strong> 
-              </p>
             </div>
           </div>
         </div>
