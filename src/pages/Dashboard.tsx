@@ -26,6 +26,7 @@ import { elevenLabsApi } from '../services/elevenLabsApi';
 import { collection, addDoc } from 'firebase/firestore';
 import { db } from '../config/firebase';
 import toast from 'react-hot-toast';
+import VoiceSettingsModal from '../components/VoiceSettings';
 
 interface Voice {
   voice_id: string;
@@ -39,6 +40,13 @@ interface Voice {
     use_case?: string;
     language?: string;
   };
+}
+
+interface VoiceSettings {
+  stability: number;
+  similarity_boost: number;
+  style: number;
+  use_speaker_boost: boolean;
 }
 
 const Dashboard: React.FC = () => {
@@ -58,6 +66,15 @@ const Dashboard: React.FC = () => {
   const [voiceFilter, setVoiceFilter] = useState('all');
   const [showDeactivatedModal, setShowDeactivatedModal] = useState(false);
   const [voiceSearchQuery, setVoiceSearchQuery] = useState('');
+  
+  // Voice Settings State
+  const [showVoiceSettings, setShowVoiceSettings] = useState(false);
+  const [voiceSettings, setVoiceSettings] = useState<VoiceSettings>({
+    stability: 0.5,
+    similarity_boost: 0.75,
+    style: 0,
+    use_speaker_boost: true
+  });
 
   // Detect if text contains Urdu/Hindi characters
   const containsUrduHindi = (text: string): boolean => {
@@ -122,7 +139,8 @@ const Dashboard: React.FC = () => {
         generatedAt: new Date(),
         timestamp: Date.now(),
         isApiGenerated: elevenLabsApi.isConfigured(),
-        audioSize: voiceData?.size || 0
+        audioSize: voiceData?.size || 0,
+        voiceSettings: voiceSettings
       });
       
       console.log('✅ Voice generation logged to admin panel');
@@ -181,7 +199,8 @@ const Dashboard: React.FC = () => {
       userPlan: userProfile.plan,
       accountStatus: userProfile.accountStatus,
       remainingVoices: getRemainingVoices(),
-      isAccountActive: isAccountActive()
+      isAccountActive: isAccountActive(),
+      voiceSettings: voiceSettings
     });
 
     setIsGenerating(true);
@@ -190,8 +209,8 @@ const Dashboard: React.FC = () => {
     try {
       console.log(`🎤 Generating speech for voice: ${selectedVoice.name} with text: "${textToGenerate}"`);
       
-      // Pass the exact text from the input field to the API
-      const audioBlob = await elevenLabsApi.generateSpeech(textToGenerate, selectedVoice.voice_id);
+      // Pass the exact text from the input field to the API with custom voice settings
+      const audioBlob = await elevenLabsApi.generateSpeech(textToGenerate, selectedVoice.voice_id, voiceSettings);
       
       // Clean up previous audio URL
       if (audioUrl) {
@@ -277,6 +296,11 @@ const Dashboard: React.FC = () => {
 
   const handleContactSupport = () => {
     window.open('https://wa.me/923064482383', '_blank');
+  };
+
+  const handleVoiceSettingsChange = (newSettings: VoiceSettings) => {
+    setVoiceSettings(newSettings);
+    toast.success('Voice settings updated!');
   };
 
   const filteredVoices = voices.filter(voice => {
@@ -855,7 +879,11 @@ const Dashboard: React.FC = () => {
                       </span>
                     </button>
                     
-                    <button className="w-full flex items-center space-x-2 sm:space-x-3 p-2 sm:p-3 bg-gray-50 dark:bg-gray-700 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-600 transition-colors">
+                    <button 
+                      onClick={() => setShowVoiceSettings(true)}
+                      disabled={!selectedVoice}
+                      className="w-full flex items-center space-x-2 sm:space-x-3 p-2 sm:p-3 bg-gray-50 dark:bg-gray-700 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
                       <Settings className="h-4 w-4 sm:h-5 sm:w-5 text-gray-600" />
                       <span className="text-gray-700 dark:text-gray-300 text-sm sm:text-base">Voice Settings</span>
                     </button>
@@ -901,6 +929,15 @@ const Dashboard: React.FC = () => {
             ))}
           </div>
         </div>
+
+        {/* Voice Settings Modal */}
+        <VoiceSettingsModal
+          isOpen={showVoiceSettings}
+          onClose={() => setShowVoiceSettings(false)}
+          onSettingsChange={handleVoiceSettingsChange}
+          currentSettings={voiceSettings}
+          voiceName={selectedVoice?.name}
+        />
 
         {/* Account Deactivated Modal */}
         {showDeactivatedModal && (
