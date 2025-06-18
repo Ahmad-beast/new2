@@ -13,7 +13,8 @@ const AdminAccess: React.FC = () => {
     e.preventDefault();
     setLoading(true);
 
-    
+    // Fixed admin password - exactly as requested
+    const adminPassword = 'Monopoly1.@';
 
     setTimeout(() => {
       if (password === adminPassword) {
@@ -103,7 +104,7 @@ const AdminAccess: React.FC = () => {
                 </span>
               </div>
               <p className="text-xs text-yellow-700 dark:text-yellow-300">
-                <strong>Password:</strong> Monopoly1.@
+                <strong>Password:</strong> 
               </p>
             </div>
           </div>
