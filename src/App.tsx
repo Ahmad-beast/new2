@@ -26,6 +26,8 @@ function App() {
               <Routes>
                 <Route path="/" element={<Welcome />} />
                 <Route path="/pricing" element={<Pricing />} />
+                <Route path="/help" element={<HelpCenter />} />
+                <Route path="/contact" element={<Contact />} />
                 <Route 
                   path="/login" 
                   element={
@@ -52,21 +54,6 @@ function App() {
                   } 
                 />
               </Routes>
-            </main>
-            <Footer />
-            <Toaster 
-              position="top-right"
-              toastOptions={{
-                duration: 4000,
-                style: {
-                  background: 'var(--toast-bg)',
-                  color: 'var(--toast-color)',
-                },
-              }}
-            />
-          </div>
-        </Router>
-         </Routes>
             </main>
             <Footer />
             <Toaster 
