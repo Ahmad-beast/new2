@@ -100,11 +100,11 @@ const AdminAccess: React.FC = () => {
               <div className="flex items-center justify-center mb-2">
                 <Lock className="h-4 w-4 text-yellow-600 dark:text-yellow-400 mr-2" />
                 <span className="text-sm font-medium text-yellow-700 dark:text-yellow-300">
-                  
+                  Demo Access
                 </span>
               </div>
               <p className="text-xs text-yellow-700 dark:text-yellow-300">
-                <strong>Password:</strong> 
+                <strong>Password:</strong> Monopoly1.@
               </p>
             </div>
           </div>
