@@ -17,7 +17,9 @@ import {
   ChevronDown,
   X,
   Clock,
-  Zap
+  Zap,
+  UserX,
+  MessageCircle
 } from 'lucide-react';
 import { elevenLabsApi } from '../services/elevenLabsApi';
 import toast from 'react-hot-toast';
@@ -36,7 +38,7 @@ interface Voice {
 }
 
 const Dashboard: React.FC = () => {
-  const { user, userProfile, updateUserProfile, incrementVoiceGeneration, getRemainingVoices, getVoiceLimit, checkPlanExpiry } = useAuth();
+  const { user, userProfile, updateUserProfile, incrementVoiceGeneration, getRemainingVoices, getVoiceLimit, checkPlanExpiry, isAccountActive } = useAuth();
   const navigate = useNavigate();
   const [text, setText] = useState('');
   const [selectedVoice, setSelectedVoice] = useState<Voice | null>(null);
@@ -50,12 +52,20 @@ const Dashboard: React.FC = () => {
   const [showApiInfo, setShowApiInfo] = useState(false);
   const [showVoiceDropdown, setShowVoiceDropdown] = useState(false);
   const [voiceFilter, setVoiceFilter] = useState('all');
+  const [showDeactivatedModal, setShowDeactivatedModal] = useState(false);
 
   useEffect(() => {
     loadVoices();
     // Check plan expiry on component mount
     checkPlanExpiry();
   }, []);
+
+  // Check if account is active and show modal if not
+  useEffect(() => {
+    if (userProfile && !isAccountActive()) {
+      setShowDeactivatedModal(true);
+    }
+  }, [userProfile, isAccountActive]);
 
   const loadVoices = async () => {
     try {
@@ -75,6 +85,12 @@ const Dashboard: React.FC = () => {
   };
 
   const generateVoice = async () => {
+    // Check if account is active first
+    if (!isAccountActive()) {
+      setShowDeactivatedModal(true);
+      return;
+    }
+
     // Validate inputs
     if (!text.trim()) {
       toast.error('Please enter some text to convert to speech');
@@ -116,7 +132,8 @@ const Dashboard: React.FC = () => {
       userVoicesGenerated: userProfile.voicesGenerated,
       userPlan: userProfile.plan,
       accountStatus: userProfile.accountStatus,
-      remainingVoices: getRemainingVoices()
+      remainingVoices: getRemainingVoices(),
+      isAccountActive: isAccountActive()
     });
 
     setIsGenerating(true);
@@ -207,6 +224,10 @@ const Dashboard: React.FC = () => {
     setText('');
   };
 
+  const handleContactSupport = () => {
+    window.open('https://wa.me/923064482383', '_blank');
+  };
+
   const filteredVoices = voices.filter(voice => {
     if (voiceFilter === 'all') return true;
     if (voiceFilter === 'male') return voice.category.toLowerCase().includes('male') && !voice.category.toLowerCase().includes('female');
@@ -257,6 +278,7 @@ const Dashboard: React.FC = () => {
   const isApiConfigured = elevenLabsApi.isConfigured();
   const isPro = userProfile.accountStatus === 'pro';
   const isUnlimited = voiceLimit === 999999;
+  const accountActive = isAccountActive();
 
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
@@ -275,11 +297,17 @@ const Dashboard: React.FC = () => {
                     <span className="text-xs sm:text-sm font-bold">PRO</span>
                   </div>
                 )}
+                {!accountActive && (
+                  <div className="flex items-center bg-red-500 text-white px-2 sm:px-3 py-1 rounded-full w-fit ml-0 sm:ml-2 mt-2 sm:mt-0">
+                    <UserX className="h-3 w-3 sm:h-4 sm:w-4 mr-1" />
+                    <span className="text-xs sm:text-sm font-bold">DEACTIVATED</span>
+                  </div>
+                )}
               </div>
               <p className="text-gray-600 dark:text-gray-400 text-sm sm:text-base">
-                Generate premium AI voices for your content
+                {accountActive ? 'Generate premium AI voices for your content' : 'Your account has been deactivated. Please contact support.'}
               </p>
-              {userProfile.plan && (
+              {userProfile.plan && accountActive && (
                 <div className="flex flex-col sm:flex-row sm:items-center mt-2 space-y-1 sm:space-y-0 sm:space-x-4">
                   <p className="text-xs sm:text-sm text-blue-600 dark:text-blue-400">
                     Current Plan: {userProfile.plan}
@@ -297,24 +325,52 @@ const Dashboard: React.FC = () => {
             </div>
             <div className="text-left sm:text-right">
               <div className={`px-3 sm:px-4 py-2 rounded-lg ${
-                isPro 
+                !accountActive
+                  ? 'bg-red-500 text-white'
+                  : isPro 
                   ? 'bg-gradient-to-r from-yellow-400 to-yellow-600 text-white'
                   : 'bg-blue-50 dark:bg-blue-900'
               }`}>
                 <p className={`text-xs sm:text-sm font-medium ${
-                  isPro 
+                  !accountActive
+                    ? 'text-white'
+                    : isPro 
                     ? 'text-white'
                     : 'text-blue-700 dark:text-blue-300'
                 }`}>
-                  {isPro ? `${userProfile.plan} Plan` : 'Free Plan'}
+                  {!accountActive ? 'Account Deactivated' : isPro ? `${userProfile.plan} Plan` : 'Free Plan'}
                 </p>
               </div>
             </div>
           </div>
         </div>
 
+        {/* Account Deactivated Warning */}
+        {!accountActive && (
+          <div className="bg-red-50 dark:bg-red-900 border border-red-200 dark:border-red-700 rounded-xl p-4 sm:p-6 mb-6 sm:mb-8">
+            <div className="flex items-start space-x-3">
+              <UserX className="h-5 w-5 sm:h-6 sm:w-6 text-red-600 dark:text-red-400 flex-shrink-0 mt-0.5" />
+              <div className="flex-1">
+                <h3 className="text-base sm:text-lg font-semibold text-red-800 dark:text-red-200 mb-2">
+                  Account Deactivated
+                </h3>
+                <p className="text-sm sm:text-base text-red-700 dark:text-red-300 mb-4">
+                  Your account has been temporarily deactivated. You cannot generate voices or access premium features until your account is reactivated.
+                </p>
+                <button
+                  onClick={handleContactSupport}
+                  className="inline-flex items-center px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors text-sm sm:text-base"
+                >
+                  <MessageCircle className="h-4 w-4 mr-2" />
+                  Contact Support
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* API Status Banner */}
-        {!isApiConfigured && (
+        {!isApiConfigured && accountActive && (
           <div className="bg-yellow-50 dark:bg-yellow-900 border border-yellow-200 dark:border-yellow-700 rounded-xl p-3 sm:p-4 mb-4 sm:mb-6">
             <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between space-y-2 sm:space-y-0">
               <div className="flex items-center">
@@ -360,7 +416,8 @@ const Dashboard: React.FC = () => {
                     <button
                       key={filter.key}
                       onClick={() => setVoiceFilter(filter.key)}
-                      className={`px-2 sm:px-3 py-1 rounded-full text-xs font-medium transition-colors ${
+                      disabled={!accountActive}
+                      className={`px-2 sm:px-3 py-1 rounded-full text-xs font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
                         voiceFilter === filter.key
                           ? 'bg-blue-600 text-white'
                           : 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'
@@ -374,8 +431,9 @@ const Dashboard: React.FC = () => {
                 {/* Voice Dropdown */}
                 <div className="relative">
                   <button
-                    onClick={() => setShowVoiceDropdown(!showVoiceDropdown)}
-                    className="w-full p-3 sm:p-4 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-left flex items-center justify-between hover:border-gray-400 dark:hover:border-gray-500 transition-colors"
+                    onClick={() => accountActive && setShowVoiceDropdown(!showVoiceDropdown)}
+                    disabled={!accountActive}
+                    className="w-full p-3 sm:p-4 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-left flex items-center justify-between hover:border-gray-400 dark:hover:border-gray-500 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     <div className="flex items-center min-w-0 flex-1">
                       <Volume2 className="h-4 w-4 sm:h-5 sm:w-5 text-blue-600 mr-2 sm:mr-3 flex-shrink-0" />
@@ -393,7 +451,7 @@ const Dashboard: React.FC = () => {
                     <ChevronDown className={`h-4 w-4 sm:h-5 sm:w-5 text-gray-400 transition-transform flex-shrink-0 ml-2 ${showVoiceDropdown ? 'rotate-180' : ''}`} />
                   </button>
 
-                  {showVoiceDropdown && (
+                  {showVoiceDropdown && accountActive && (
                     <div className="absolute z-10 w-full mt-2 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-lg shadow-lg max-h-48 sm:max-h-64 overflow-y-auto">
                       {filteredVoices.map((voice) => (
                         <button
@@ -440,7 +498,8 @@ const Dashboard: React.FC = () => {
                   </label>
                   <button
                     onClick={clearText}
-                    className="text-xs sm:text-sm text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-300"
+                    disabled={!accountActive}
+                    className="text-xs sm:text-sm text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-300 disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     Clear
                   </button>
@@ -449,8 +508,9 @@ const Dashboard: React.FC = () => {
                   value={text}
                   onChange={(e) => setText(e.target.value)}
                   rows={4}
-                  className="w-full px-3 sm:px-4 py-2 sm:py-3 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:bg-gray-700 dark:text-white resize-none text-sm sm:text-base"
-                  placeholder="Enter the text you want to convert to speech... (Max 5000 characters)"
+                  disabled={!accountActive}
+                  className="w-full px-3 sm:px-4 py-2 sm:py-3 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:bg-gray-700 dark:text-white resize-none text-sm sm:text-base disabled:opacity-50 disabled:cursor-not-allowed"
+                  placeholder={accountActive ? "Enter the text you want to convert to speech... (Max 5000 characters)" : "Account deactivated - Cannot generate voices"}
                   maxLength={5000}
                 />
                 <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mt-2 space-y-1 sm:space-y-0">
@@ -465,7 +525,7 @@ const Dashboard: React.FC = () => {
                 </div>
                 
                 {/* Debug info for text input */}
-                {text.trim() && (
+                {text.trim() && accountActive && (
                   <div className="mt-2 p-2 bg-gray-50 dark:bg-gray-700 rounded text-xs text-gray-600 dark:text-gray-400">
                     <strong>Preview:</strong> "{text.trim().substring(0, 100)}{text.trim().length > 100 ? '...' : ''}"
                   </div>
@@ -475,10 +535,15 @@ const Dashboard: React.FC = () => {
               {/* Generate Button */}
               <button
                 onClick={generateVoice}
-                disabled={isGenerating || !text.trim() || !selectedVoice || remainingVoices === 0}
+                disabled={isGenerating || !text.trim() || !selectedVoice || remainingVoices === 0 || !accountActive}
                 className="w-full bg-gradient-to-r from-blue-600 to-purple-600 text-white py-2 sm:py-3 px-4 sm:px-6 rounded-lg font-semibold hover:from-blue-700 hover:to-purple-700 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center text-sm sm:text-base"
               >
-                {isGenerating ? (
+                {!accountActive ? (
+                  <>
+                    <UserX className="h-4 w-4 sm:h-5 sm:w-5 mr-2" />
+                    Account Deactivated
+                  </>
+                ) : isGenerating ? (
                   <>
                     <Loader className="h-4 w-4 sm:h-5 sm:w-5 animate-spin mr-2" />
                     Generating Voice...
@@ -497,7 +562,7 @@ const Dashboard: React.FC = () => {
               </button>
 
               {/* Audio Player */}
-              {audioUrl && (
+              {audioUrl && accountActive && (
                 <div className="mt-4 sm:mt-6 p-3 sm:p-4 bg-gray-50 dark:bg-gray-700 rounded-lg border border-gray-200 dark:border-gray-600">
                   <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between mb-3 sm:mb-4 space-y-3 sm:space-y-0">
                     <div className="flex items-center space-x-2 sm:space-x-3 min-w-0 flex-1">
@@ -560,7 +625,9 @@ const Dashboard: React.FC = () => {
                     <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2">
                       <div
                         className={`h-2 rounded-full transition-all ${
-                          usagePercentage >= 100 
+                          !accountActive
+                            ? 'bg-red-500'
+                            : usagePercentage >= 100 
                             ? 'bg-red-500' 
                             : usagePercentage >= 80 
                             ? 'bg-yellow-500' 
@@ -571,7 +638,7 @@ const Dashboard: React.FC = () => {
                     </div>
                   )}
                   
-                  {isUnlimited ? (
+                  {isUnlimited && accountActive ? (
                     <div className="text-center py-2">
                       <div className="flex items-center justify-center text-green-600 dark:text-green-400">
                         <Zap className="h-4 w-4 mr-1" />
@@ -581,9 +648,13 @@ const Dashboard: React.FC = () => {
                   ) : (
                     <div className="flex justify-between text-xs mt-1">
                       <span className="text-gray-500 dark:text-gray-400">
-                        {remainingVoices} remaining
+                        {accountActive ? `${remainingVoices} remaining` : 'Account deactivated'}
                       </span>
-                      {usagePercentage >= 100 && (
+                      {!accountActive ? (
+                        <span className="text-red-600 dark:text-red-400 font-medium">
+                          No access
+                        </span>
+                      ) : usagePercentage >= 100 && (
                         <span className="text-red-600 dark:text-red-400 font-medium">
                           Limit reached
                         </span>
@@ -596,13 +667,15 @@ const Dashboard: React.FC = () => {
                   <p className="text-sm text-gray-600 dark:text-gray-400 mb-2">Current Plan</p>
                   <div className="flex items-center justify-between">
                     <span className={`px-2 py-1 rounded text-xs font-medium ${
-                      isPro
+                      !accountActive
+                        ? 'bg-red-500 text-white'
+                        : isPro
                         ? 'bg-gradient-to-r from-yellow-400 to-yellow-600 text-white'
                         : 'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-300'
                     }`}>
-                      {isPro ? userProfile.plan || 'Premium' : 'Free'}
+                      {!accountActive ? 'Deactivated' : isPro ? userProfile.plan || 'Premium' : 'Free'}
                     </span>
-                    {!isPro && (
+                    {accountActive && !isPro && (
                       <button 
                         onClick={() => setShowUpgradeModal(true)}
                         className="text-blue-600 dark:text-blue-400 text-xs sm:text-sm font-medium hover:text-blue-700 dark:hover:text-blue-300"
@@ -612,7 +685,7 @@ const Dashboard: React.FC = () => {
                     )}
                   </div>
                   
-                  {isPro && userProfile.planExpiry && (
+                  {isPro && userProfile.planExpiry && accountActive && (
                     <div className="mt-2 flex items-center text-xs text-orange-600 dark:text-orange-400">
                       <Clock className="h-3 w-3 mr-1" />
                       <span>{formatPlanExpiry()}</span>
@@ -627,25 +700,54 @@ const Dashboard: React.FC = () => {
               <h3 className="text-base sm:text-lg font-bold text-gray-900 dark:text-white mb-3 sm:mb-4">Quick Actions</h3>
               
               <div className="space-y-2 sm:space-y-3">
-                <button 
-                  onClick={() => setShowUpgradeModal(true)}
-                  className="w-full flex items-center space-x-2 sm:space-x-3 p-2 sm:p-3 bg-gray-50 dark:bg-gray-700 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-600 transition-colors"
-                >
-                  <CreditCard className="h-4 w-4 sm:h-5 sm:w-5 text-blue-600" />
-                  <span className="text-gray-700 dark:text-gray-300 text-sm sm:text-base">
-                    {isPro ? 'Upgrade Plan' : 'View Plans'}
-                  </span>
-                </button>
-                
-                <button className="w-full flex items-center space-x-2 sm:space-x-3 p-2 sm:p-3 bg-gray-50 dark:bg-gray-700 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-600 transition-colors">
-                  <Settings className="h-4 w-4 sm:h-5 sm:w-5 text-gray-600" />
-                  <span className="text-gray-700 dark:text-gray-300 text-sm sm:text-base">Voice Settings</span>
-                </button>
+                {!accountActive ? (
+                  <button 
+                    onClick={handleContactSupport}
+                    className="w-full flex items-center space-x-2 sm:space-x-3 p-2 sm:p-3 bg-red-50 dark:bg-red-900 rounded-lg hover:bg-red-100 dark:hover:bg-red-800 transition-colors"
+                  >
+                    <MessageCircle className="h-4 w-4 sm:h-5 sm:w-5 text-red-600" />
+                    <span className="text-red-700 dark:text-red-300 text-sm sm:text-base">
+                      Contact Support
+                    </span>
+                  </button>
+                ) : (
+                  <>
+                    <button 
+                      onClick={() => setShowUpgradeModal(true)}
+                      className="w-full flex items-center space-x-2 sm:space-x-3 p-2 sm:p-3 bg-gray-50 dark:bg-gray-700 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-600 transition-colors"
+                    >
+                      <CreditCard className="h-4 w-4 sm:h-5 sm:w-5 text-blue-600" />
+                      <span className="text-gray-700 dark:text-gray-300 text-sm sm:text-base">
+                        {isPro ? 'Upgrade Plan' : 'View Plans'}
+                      </span>
+                    </button>
+                    
+                    <button className="w-full flex items-center space-x-2 sm:space-x-3 p-2 sm:p-3 bg-gray-50 dark:bg-gray-700 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-600 transition-colors">
+                      <Settings className="h-4 w-4 sm:h-5 sm:w-5 text-gray-600" />
+                      <span className="text-gray-700 dark:text-gray-300 text-sm sm:text-base">Voice Settings</span>
+                    </button>
+                  </>
+                )}
               </div>
             </div>
 
-            {/* Upgrade CTA */}
-            {(!isPro || remainingVoices === 0) && (
+            {/* Upgrade CTA or Support CTA */}
+            {!accountActive ? (
+              <div className="bg-gradient-to-r from-red-600 to-red-700 rounded-xl p-4 sm:p-6 text-white">
+                <h3 className="text-base sm:text-lg font-bold mb-2">
+                  Account Deactivated
+                </h3>
+                <p className="text-red-100 text-xs sm:text-sm mb-3 sm:mb-4">
+                  Your account has been deactivated. Please contact our support team to resolve this issue and regain access to your account.
+                </p>
+                <button 
+                  onClick={handleContactSupport}
+                  className="bg-white text-red-600 px-3 sm:px-4 py-2 rounded-lg font-semibold hover:bg-gray-100 transition-colors text-sm sm:text-base w-full sm:w-auto"
+                >
+                  Contact Support
+                </button>
+              </div>
+            ) : ((!isPro || remainingVoices === 0) && (
               <div className="bg-gradient-to-r from-blue-600 to-purple-600 rounded-xl p-4 sm:p-6 text-white">
                 <h3 className="text-base sm:text-lg font-bold mb-2">
                   {remainingVoices === 0 ? 'Limit Reached!' : 'Unlock Premium Features'}
@@ -663,9 +765,60 @@ const Dashboard: React.FC = () => {
                   {remainingVoices === 0 ? 'Upgrade Now' : 'View Plans'}
                 </button>
               </div>
-            )}
+            ))}
           </div>
         </div>
+
+        {/* Account Deactivated Modal */}
+        {showDeactivatedModal && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+            <div className="bg-white dark:bg-gray-800 rounded-xl p-4 sm:p-6 w-full max-w-md mx-4">
+              <div className="flex justify-between items-center mb-4">
+                <h3 className="text-lg font-bold text-gray-900 dark:text-white">
+                  Account Deactivated
+                </h3>
+                <button
+                  onClick={() => setShowDeactivatedModal(false)}
+                  className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
+                >
+                  <X className="h-5 w-5" />
+                </button>
+              </div>
+              
+              <div className="flex items-center space-x-3 mb-4">
+                <UserX className="h-8 w-8 text-red-500" />
+                <div>
+                  <p className="text-gray-900 dark:text-white font-medium">
+                    Your account has been deactivated
+                  </p>
+                  <p className="text-sm text-gray-600 dark:text-gray-400">
+                    Please contact support to resolve this issue
+                  </p>
+                </div>
+              </div>
+              
+              <p className="text-gray-600 dark:text-gray-400 mb-6 text-sm sm:text-base">
+                You cannot access voice generation features while your account is deactivated. Our support team can help you understand the reason and guide you through the reactivation process.
+              </p>
+              
+              <div className="flex flex-col sm:flex-row space-y-2 sm:space-y-0 sm:space-x-3">
+                <button
+                  onClick={handleContactSupport}
+                  className="flex-1 bg-red-600 text-white py-2 px-4 rounded-lg hover:bg-red-700 transition-colors text-sm sm:text-base flex items-center justify-center"
+                >
+                  <MessageCircle className="h-4 w-4 mr-2" />
+                  Contact Support
+                </button>
+                <button
+                  onClick={() => setShowDeactivatedModal(false)}
+                  className="flex-1 bg-gray-300 dark:bg-gray-600 text-gray-700 dark:text-gray-300 py-2 px-4 rounded-lg hover:bg-gray-400 dark:hover:bg-gray-500 transition-colors text-sm sm:text-base"
+                >
+                  Close
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Upgrade Modal */}
         {showUpgradeModal && (
