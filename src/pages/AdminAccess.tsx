@@ -13,8 +13,7 @@ const AdminAccess: React.FC = () => {
     e.preventDefault();
     setLoading(true);
 
-    // Fixed admin password - exactly as requested
-    const adminPassword = 'Monopoly1.@';
+    
 
     setTimeout(() => {
       if (password === adminPassword) {
