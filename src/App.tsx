@@ -12,6 +12,8 @@ import Login from './pages/Login';
 import AdminAccess from './pages/AdminAccess';
 import AdminDashboard from './pages/AdminDashboard';
 import Dashboard from './pages/Dashboard';
+import HelpCenter from './pages/HelpCenter';
+import Contact from './pages/Contact';
 
 function App() {
   return (
