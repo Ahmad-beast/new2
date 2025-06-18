@@ -1,6 +1,6 @@
 import React from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { Mic, Moon, Sun, User, LogOut, Menu, X } from 'lucide-react';
+import { Mic, Moon, Sun, User, LogOut, Menu, X, HelpCircle, MessageCircle } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import { useTheme } from '../../contexts/ThemeContext';
 
@@ -34,10 +34,26 @@ const Navbar: React.FC = () => {
           </Link>
 
           {/* Desktop Menu */}
-          <div className="hidden md:flex items-center space-x-4">
+          <div className="hidden md:flex items-center space-x-6">
+            <Link
+              to="/help"
+              className="flex items-center space-x-1 text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white transition-colors"
+            >
+              <HelpCircle className="h-4 w-4" />
+              <span className="text-sm font-medium">Help</span>
+            </Link>
+            
+            <Link
+              to="/contact"
+              className="flex items-center space-x-1 text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white transition-colors"
+            >
+              <MessageCircle className="h-4 w-4" />
+              <span className="text-sm font-medium">Contact</span>
+            </Link>
+
             <button
               onClick={toggleTheme}
-              className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800  transition-colors"
+              className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
             >
               {theme === 'dark' ? (
                 <Sun className="h-5 w-5 text-gray-600 dark:text-gray-400" />
@@ -110,6 +126,24 @@ const Navbar: React.FC = () => {
         {showMobileMenu && (
           <div className="md:hidden border-t border-gray-200 dark:border-gray-700 py-4">
             <div className="space-y-2">
+              <Link
+                to="/help"
+                onClick={closeMobileMenu}
+                className="flex items-center space-x-2 px-3 py-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
+              >
+                <HelpCircle className="h-4 w-4" />
+                <span className="text-sm font-medium">Help Center</span>
+              </Link>
+              
+              <Link
+                to="/contact"
+                onClick={closeMobileMenu}
+                className="flex items-center space-x-2 px-3 py-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
+              >
+                <MessageCircle className="h-4 w-4" />
+                <span className="text-sm font-medium">Contact Us</span>
+              </Link>
+
               {user ? (
                 <>
                   <Link
