@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { Check, Star, Zap, Crown, CreditCard, Smartphone, Copy, CheckCircle } from 'lucide-react';
+import { Check, Star, Zap, Crown, CreditCard, Smartphone, Copy, CheckCircle, ArrowRight, Sparkles, Users, TrendingUp, Shield, Clock, Gift, Calendar } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { collection, addDoc } from 'firebase/firestore';
 import { db } from '../config/firebase';
@@ -12,93 +12,152 @@ const Pricing: React.FC = () => {
   const [showPaymentModal, setShowPaymentModal] = useState(false);
   const [selectedPlan, setSelectedPlan] = useState<any>(null);
   const [copied, setCopied] = useState(false);
+  const [billingCycle, setBillingCycle] = useState<'monthly' | 'yearly'>('monthly');
 
-  const plans = [
+  // Base monthly plans with correct yearly calculation
+  const basePlans = [
     {
       id: 'free',
-      name: 'Free Trial',
-      price: 'Free',
+      name: 'Free Starter',
+      monthlyPrice: 0,
+      yearlyPrice: 0,
       duration: 'Forever',
+      description: 'Perfect for trying out our AI voice technology',
       features: [
-        '3-5 voice generations',
+        '5 voice generations',
         'Basic voice models',
-        'Standard quality',
-        'Community support'
+        'Standard quality audio',
+        'Community support',
+        'Download in MP3 format'
       ],
-      icon: <Star className="h-5 w-5 sm:h-6 sm:w-6" />,
-      color: 'border-gray-200 dark:border-gray-600',
-      buttonColor: 'bg-gray-600 hover:bg-gray-700',
-      popular: false
+      icon: <Gift className="h-6 w-6" />,
+      gradient: 'from-gray-400 to-gray-600',
+      borderColor: 'border-gray-200 dark:border-gray-600',
+      buttonStyle: 'bg-gray-600 hover:bg-gray-700',
+      popular: false,
+      badge: null
     },
     {
       id: 'daily',
-      name: '1 Day',
-      price: 'Rs. 99',
-      duration: '1 Day',
+      name: 'Quick Start',
+      monthlyPrice: 99,
+      yearlyPrice: 99 * 12, // 1188
+      yearlyDiscountedPrice: Math.round(99 * 12 * 0.8), // 950 (20% discount)
+      duration: billingCycle === 'monthly' ? '1 Day' : '12 Days',
+      description: 'Ideal for small projects and testing',
       features: [
-        '10 voice generations',
-        'All voice models',
-        'Premium quality',
+        billingCycle === 'monthly' ? '10 voice generations' : '120 voice generations/year',
+        'All premium voice models',
+        'High-quality audio',
         'Priority support',
-        'Download in multiple formats'
+        'Multiple download formats',
+        'Commercial usage rights'
       ],
-      icon: <Zap className="h-5 w-5 sm:h-6 sm:w-6" />,
-      color: 'border-blue-200 dark:border-blue-600',
-      buttonColor: 'bg-blue-600 hover:bg-blue-700',
-      popular: false
+      icon: <Zap className="h-6 w-6" />,
+      gradient: 'from-blue-500 to-cyan-500',
+      borderColor: 'border-blue-200 dark:border-blue-600',
+      buttonStyle: 'bg-gradient-to-r from-blue-600 to-cyan-600 hover:from-blue-700 hover:to-cyan-700',
+      popular: false,
+      badge: billingCycle === 'yearly' ? '20% OFF' : null
     },
     {
       id: 'weekly',
-      name: '7 Days',
-      price: 'Rs. 200',
-      duration: '7 Days',
+      name: 'Creator Pro',
+      monthlyPrice: 200,
+      yearlyPrice: 200 * 12, // 2400
+      yearlyDiscountedPrice: Math.round(200 * 12 * 0.8), // 1920 (20% discount)
+      duration: billingCycle === 'monthly' ? '7 Days' : '84 Days',
+      description: 'Most popular choice for content creators',
       features: [
-        '20 voice generations',
+        billingCycle === 'monthly' ? '20 voice generations' : '240 voice generations/year',
         'Advanced voice customization',
         'Batch processing',
         'API access',
-        'Priority queue'
+        'Priority generation queue',
+        'Custom voice training',
+        'Analytics dashboard'
       ],
-      icon: <Zap className="h-5 w-5 sm:h-6 sm:w-6" />,
-      color: 'border-purple-200 dark:border-purple-600 ring-2 ring-purple-500',
-      buttonColor: 'bg-purple-600 hover:bg-purple-700',
-      popular: true
+      icon: <Star className="h-6 w-6" />,
+      gradient: 'from-purple-500 to-pink-500',
+      borderColor: 'border-purple-200 dark:border-purple-600 ring-2 ring-purple-500',
+      buttonStyle: 'bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700',
+      popular: true,
+      badge: 'MOST POPULAR'
     },
     {
       id: 'biweekly',
-      name: '15 Days',
-      price: 'Rs. 350',
-      duration: '15 Days',
+      name: 'Business',
+      monthlyPrice: 350,
+      yearlyPrice: 350 * 12, // 4200
+      yearlyDiscountedPrice: Math.round(350 * 12 * 0.8), // 3360 (20% discount)
+      duration: billingCycle === 'monthly' ? '15 Days' : '180 Days',
+      description: 'Perfect for growing businesses',
       features: [
-        '29 voice generations',
-        'Custom voice training',
-        'Team collaboration',
+        billingCycle === 'monthly' ? '29 voice generations' : '348 voice generations/year',
+        'Custom voice cloning',
+        'Team collaboration tools',
         'Advanced analytics',
-        'White-label options'
+        'White-label options',
+        'Dedicated support',
+        'Custom integrations'
       ],
-      icon: <Crown className="h-5 w-5 sm:h-6 sm:w-6" />,
-      color: 'border-green-200 dark:border-green-600',
-      buttonColor: 'bg-green-600 hover:bg-green-700',
-      popular: false
+      icon: <Users className="h-6 w-6" />,
+      gradient: 'from-green-500 to-emerald-500',
+      borderColor: 'border-green-200 dark:border-green-600',
+      buttonStyle: 'bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-700 hover:to-emerald-700',
+      popular: false,
+      badge: billingCycle === 'yearly' ? '20% OFF' : null
     },
     {
       id: 'monthly',
-      name: '30 Days',
-      price: 'Rs. 499',
-      duration: '30 Days',
+      name: 'Enterprise',
+      monthlyPrice: 499,
+      yearlyPrice: 499 * 12, // 5988
+      yearlyDiscountedPrice: Math.round(499 * 12 * 0.8), // 4790 (20% discount)
+      duration: billingCycle === 'monthly' ? '30 Days' : '365 Days',
+      description: 'Unlimited power for professionals',
       features: [
         'Unlimited voice generations',
-        'Unlimited voice models',
-        'Premium support',
+        'All premium features',
+        'Custom voice models',
+        'Dedicated account manager',
+        'SLA guarantee',
         'Custom integrations',
-        'Dedicated account manager'
+        'Enterprise security',
+        billingCycle === 'yearly' ? 'Priority phone support' : 'Email support'
       ],
-      icon: <Crown className="h-5 w-5 sm:h-6 sm:w-6" />,
-      color: 'border-yellow-200 dark:border-yellow-600',
-      buttonColor: 'bg-gradient-to-r from-yellow-500 to-yellow-600 hover:from-yellow-600 hover:to-yellow-700',
-      popular: false
+      icon: <Crown className="h-6 w-6" />,
+      gradient: 'from-yellow-500 to-orange-500',
+      borderColor: 'border-yellow-200 dark:border-yellow-600',
+      buttonStyle: 'bg-gradient-to-r from-yellow-500 to-orange-500 hover:from-yellow-600 hover:to-orange-600',
+      popular: false,
+      badge: 'BEST VALUE'
     }
   ];
+
+  // Calculate current plans based on billing cycle
+  const plans = basePlans.map(plan => {
+    const currentPrice = billingCycle === 'monthly' 
+      ? plan.monthlyPrice 
+      : plan.yearlyDiscountedPrice || plan.yearlyPrice;
+    
+    const originalPrice = billingCycle === 'yearly' && plan.monthlyPrice > 0 
+      ? plan.yearlyPrice 
+      : null;
+    
+    const savings = billingCycle === 'yearly' && plan.monthlyPrice > 0
+      ? plan.yearlyPrice - (plan.yearlyDiscountedPrice || plan.yearlyPrice)
+      : 0;
+    
+    return {
+      ...plan,
+      price: plan.monthlyPrice === 0 ? 'Free' : `Rs. ${currentPrice}`,
+      originalPrice: originalPrice ? `Rs. ${originalPrice}` : null,
+      actualAmount: currentPrice,
+      billingCycle: billingCycle,
+      savings: savings
+    };
+  });
 
   const handlePlanSelect = (plan: any) => {
     if (plan.id === 'free') {
@@ -141,13 +200,15 @@ const Pricing: React.FC = () => {
       setSubmitting(true);
 
       try {
-        // Save payment request to Firestore
         await addDoc(collection(db, 'payments'), {
           uid: user?.uid,
           userEmail: user?.email,
           plan: selectedPlan.name,
           planDuration: selectedPlan.duration,
-          amount: parseInt(selectedPlan.price.replace('Rs. ', '')),
+          amount: selectedPlan.actualAmount,
+          billingCycle: selectedPlan.billingCycle,
+          originalAmount: selectedPlan.originalPrice ? parseInt(selectedPlan.originalPrice.replace('Rs. ', '')) : null,
+          savings: selectedPlan.savings || 0,
           tid: transactionId.trim(),
           accountType: 'JazzCash',
           accountHolder: 'Muhammad Zubair',
@@ -171,59 +232,97 @@ const Pricing: React.FC = () => {
 
     return (
       <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-        <div className="bg-white dark:bg-gray-800 rounded-xl max-w-md w-full max-h-[90vh] overflow-y-auto">
-          <div className="p-4 sm:p-6">
-            <h3 className="text-lg sm:text-xl font-bold text-gray-900 dark:text-white mb-4">
-              Complete Payment - {selectedPlan?.name}
-            </h3>
+        <div className="bg-white dark:bg-gray-800 rounded-2xl max-w-lg w-full max-h-[90vh] overflow-y-auto shadow-2xl">
+          <div className="p-6 sm:p-8">
+            <div className="text-center mb-6">
+              <div className={`inline-flex p-3 rounded-full bg-gradient-to-r ${selectedPlan?.gradient} mb-4`}>
+                <CreditCard className="h-6 w-6 text-white" />
+              </div>
+              <h3 className="text-xl sm:text-2xl font-bold text-gray-900 dark:text-white mb-2">
+                Complete Your Purchase
+              </h3>
+              <p className="text-gray-600 dark:text-gray-400">
+                {selectedPlan?.name} - {selectedPlan?.billingCycle === 'yearly' ? 'Yearly' : 'Monthly'} Plan
+              </p>
+            </div>
             
-            <div className="mb-6 p-3 sm:p-4 bg-blue-50 dark:bg-blue-900 rounded-lg border border-blue-200 dark:border-blue-700">
-              <p className="text-sm text-blue-700 dark:text-blue-300 mb-2">
-                <strong>Plan:</strong> {selectedPlan?.name} ({selectedPlan?.duration})
-              </p>
-              <p className="text-sm text-blue-700 dark:text-blue-300">
-                <strong>Amount:</strong> {selectedPlan?.price}
-              </p>
+            <div className="mb-6 p-4 bg-gradient-to-r from-blue-50 to-purple-50 dark:from-blue-900 dark:to-purple-900 rounded-xl border border-blue-200 dark:border-blue-700">
+              <div className="flex justify-between items-center mb-2">
+                <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Plan:</span>
+                <span className="font-semibold text-gray-900 dark:text-white">{selectedPlan?.name}</span>
+              </div>
+              <div className="flex justify-between items-center mb-2">
+                <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Billing:</span>
+                <span className="font-semibold text-gray-900 dark:text-white">
+                  {selectedPlan?.billingCycle === 'yearly' ? 'Yearly' : 'Monthly'}
+                  {selectedPlan?.billingCycle === 'yearly' && (
+                    <span className="ml-2 text-xs bg-green-100 text-green-700 px-2 py-1 rounded-full">
+                      20% OFF
+                    </span>
+                  )}
+                </span>
+              </div>
+              <div className="flex justify-between items-center mb-2">
+                <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Duration:</span>
+                <span className="font-semibold text-gray-900 dark:text-white">{selectedPlan?.duration}</span>
+              </div>
+              <div className="flex justify-between items-center">
+                <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Amount:</span>
+                <div className="text-right">
+                  <span className="text-lg font-bold text-gray-900 dark:text-white">{selectedPlan?.price}</span>
+                  {selectedPlan?.originalPrice && (
+                    <span className="text-sm text-gray-500 line-through ml-2">{selectedPlan.originalPrice}</span>
+                  )}
+                </div>
+              </div>
+              
+              {selectedPlan?.billingCycle === 'yearly' && selectedPlan?.savings > 0 && (
+                <div className="mt-3 p-2 bg-green-50 dark:bg-green-900 rounded border border-green-200 dark:border-green-700">
+                  <p className="text-xs text-green-700 dark:text-green-300 text-center">
+                    💰 You save Rs. {selectedPlan.savings} with yearly billing!
+                  </p>
+                </div>
+              )}
             </div>
 
             {/* Payment Instructions */}
-            <div className="mb-6 p-3 sm:p-4 bg-gradient-to-r from-orange-50 to-red-50 dark:from-orange-900 dark:to-red-900 rounded-lg border border-orange-200 dark:border-orange-700">
-              <h4 className="font-semibold text-gray-900 dark:text-white mb-3 flex items-center text-sm sm:text-base">
-                <Smartphone className="h-4 w-4 sm:h-5 sm:w-5 mr-2 text-orange-600" />
+            <div className="mb-6 p-4 bg-gradient-to-r from-orange-50 to-red-50 dark:from-orange-900 dark:to-red-900 rounded-xl border border-orange-200 dark:border-orange-700">
+              <h4 className="font-semibold text-gray-900 dark:text-white mb-4 flex items-center text-base">
+                <Smartphone className="h-5 w-5 mr-2 text-orange-600" />
                 Payment Instructions
               </h4>
               
-              <div className="space-y-3 text-xs sm:text-sm">
-                <div>
-                  <label className="font-medium text-gray-700 dark:text-gray-300">Account Title:</label>
-                  <p className="text-gray-900 dark:text-white">Muhammad Zubair</p>
+              <div className="space-y-3 text-sm">
+                <div className="flex justify-between items-center p-3 bg-white dark:bg-gray-800 rounded-lg">
+                  <span className="font-medium text-gray-700 dark:text-gray-300">Account Title:</span>
+                  <span className="text-gray-900 dark:text-white font-semibold">Muhammad Zubair</span>
                 </div>
                 
-                <div>
-                  <label className="font-medium text-gray-700 dark:text-gray-300">Account Number:</label>
-                  <div className="flex items-center space-x-2 mt-1">
-                    <p className="text-gray-900 dark:text-white font-mono bg-gray-100 dark:bg-gray-700 px-2 py-1 rounded text-xs sm:text-sm">
-                      0306-4482383
-                    </p>
+                <div className="flex justify-between items-center p-3 bg-white dark:bg-gray-800 rounded-lg">
+                  <span className="font-medium text-gray-700 dark:text-gray-300">Account Number:</span>
+                  <div className="flex items-center space-x-2">
+                    <span className="text-gray-900 dark:text-white font-mono font-semibold">0306-4482383</span>
                     <button
                       onClick={copyAccountNumber}
                       className="flex items-center space-x-1 px-2 py-1 bg-orange-600 text-white rounded hover:bg-orange-700 transition-colors"
                     >
-                      {copied ? <CheckCircle className="h-3 w-3 sm:h-4 sm:w-4" /> : <Copy className="h-3 w-3 sm:h-4 sm:w-4" />}
+                      {copied ? <CheckCircle className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
                       <span className="text-xs">{copied ? 'Copied!' : 'Copy'}</span>
                     </button>
                   </div>
                 </div>
                 
-                <div>
-                  <label className="font-medium text-gray-700 dark:text-gray-300">Account Type:</label>
-                  <p className="text-gray-900 dark:text-white">JazzCash</p>
+                <div className="flex justify-between items-center p-3 bg-white dark:bg-gray-800 rounded-lg">
+                  <span className="font-medium text-gray-700 dark:text-gray-300">Payment Method:</span>
+                  <span className="text-gray-900 dark:text-white font-semibold">JazzCash</span>
                 </div>
               </div>
 
-              <div className="mt-4 p-2 sm:p-3 bg-yellow-50 dark:bg-yellow-900 rounded border border-yellow-200 dark:border-yellow-700">
+              <div className="mt-4 p-3 bg-yellow-50 dark:bg-yellow-900 rounded-lg border border-yellow-200 dark:border-yellow-700">
                 <p className="text-xs text-yellow-700 dark:text-yellow-300">
-                  <strong>Instructions:</strong> Send {selectedPlan?.price} to the above JazzCash number and enter the transaction ID below.
+                  <strong>Step 1:</strong> Send {selectedPlan?.price} to the above JazzCash number<br/>
+                  <strong>Step 2:</strong> Enter the transaction ID below<br/>
+                  <strong>Step 3:</strong> Wait for admin verification (usually within 2-4 hours)
                 </p>
               </div>
             </div>
@@ -238,7 +337,7 @@ const Pricing: React.FC = () => {
                   required
                   value={transactionId}
                   onChange={(e) => setTransactionId(e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg dark:bg-gray-700 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm sm:text-base"
+                  className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg dark:bg-gray-700 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                   placeholder="Enter your transaction ID"
                 />
                 <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
@@ -246,26 +345,29 @@ const Pricing: React.FC = () => {
                 </p>
               </div>
               
-              <div className="flex flex-col sm:flex-row space-y-2 sm:space-y-0 sm:space-x-3 pt-4">
+              <div className="flex flex-col sm:flex-row space-y-3 sm:space-y-0 sm:space-x-3 pt-4">
                 <button
                   type="submit"
                   disabled={submitting || !transactionId.trim()}
-                  className="flex-1 bg-blue-600 text-white py-2 px-4 rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center text-sm sm:text-base"
+                  className="flex-1 bg-gradient-to-r from-blue-600 to-purple-600 text-white py-3 px-4 rounded-lg hover:from-blue-700 hover:to-purple-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center font-semibold"
                 >
                   {submitting ? (
                     <>
                       <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
-                      Submitting...
+                      Processing...
                     </>
                   ) : (
-                    'Submit Payment Request'
+                    <>
+                      <CheckCircle className="h-4 w-4 mr-2" />
+                      Submit Payment Request
+                    </>
                   )}
                 </button>
                 <button
                   type="button"
                   onClick={() => setShowPaymentModal(false)}
                   disabled={submitting}
-                  className="flex-1 bg-gray-300 dark:bg-gray-600 text-gray-700 dark:text-gray-300 py-2 px-4 rounded-lg hover:bg-gray-400 dark:hover:bg-gray-500 transition-colors disabled:opacity-50 text-sm sm:text-base"
+                  className="flex-1 bg-gray-300 dark:bg-gray-600 text-gray-700 dark:text-gray-300 py-3 px-4 rounded-lg hover:bg-gray-400 dark:hover:bg-gray-500 transition-colors disabled:opacity-50 font-semibold"
                 >
                   Cancel
                 </button>
@@ -278,138 +380,329 @@ const Pricing: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-gray-900 py-8 sm:py-12">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+    <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-purple-50 dark:from-gray-900 dark:via-gray-800 dark:to-gray-900">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12 sm:py-16">
         {/* Header */}
-        <div className="text-center mb-12 sm:mb-16">
-          <h1 className="text-3xl sm:text-4xl lg:text-5xl font-bold text-gray-900 dark:text-white mb-3 sm:mb-4">
-            Choose Your Perfect Plan
+        <div className="text-center mb-16">
+          <div className="inline-flex items-center px-4 py-2 bg-gradient-to-r from-blue-100 to-purple-100 dark:from-blue-900 dark:to-purple-900 rounded-full mb-6">
+            <Sparkles className="h-4 w-4 text-blue-600 dark:text-blue-400 mr-2" />
+            <span className="text-sm font-medium text-blue-700 dark:text-blue-300">
+              Special Launch Pricing - Limited Time
+            </span>
+          </div>
+          
+          <h1 className="text-4xl sm:text-5xl lg:text-6xl font-bold text-gray-900 dark:text-white mb-6">
+            Choose Your
+            <span className="bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent"> Perfect Plan</span>
           </h1>
-          <p className="text-lg sm:text-xl text-gray-600 dark:text-gray-300 max-w-xs sm:max-w-2xl mx-auto px-4 sm:px-0">
-            Flexible pricing options to suit creators of all sizes. Start free and upgrade anytime.
+          
+          <p className="text-xl text-gray-600 dark:text-gray-300 max-w-3xl mx-auto mb-8">
+            Unlock the power of AI voice generation with flexible pricing designed for creators, businesses, and enterprises
           </p>
+
+          {/* Enhanced Billing Toggle */}
+          <div className="inline-flex items-center p-1 bg-gray-100 dark:bg-gray-800 rounded-xl shadow-inner">
+            <button
+              onClick={() => setBillingCycle('monthly')}
+              className={`px-6 py-3 rounded-lg text-sm font-semibold transition-all duration-200 ${
+                billingCycle === 'monthly'
+                  ? 'bg-white dark:bg-gray-700 text-gray-900 dark:text-white shadow-md transform scale-105'
+                  : 'text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200'
+              }`}
+            >
+              <Calendar className="h-4 w-4 inline mr-2" />
+              Monthly
+            </button>
+            <button
+              onClick={() => setBillingCycle('yearly')}
+              className={`px-6 py-3 rounded-lg text-sm font-semibold transition-all duration-200 relative ${
+                billingCycle === 'yearly'
+                  ? 'bg-white dark:bg-gray-700 text-gray-900 dark:text-white shadow-md transform scale-105'
+                  : 'text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200'
+              }`}
+            >
+              <Calendar className="h-4 w-4 inline mr-2" />
+              Yearly
+              <span className="ml-2 text-xs bg-gradient-to-r from-green-500 to-emerald-500 text-white px-2 py-1 rounded-full font-bold">
+                Save 20%
+              </span>
+            </button>
+          </div>
+
+          {/* Savings Indicator */}
+          {billingCycle === 'yearly' && (
+            <div className="mt-4 inline-flex items-center px-4 py-2 bg-green-50 dark:bg-green-900 rounded-full border border-green-200 dark:border-green-700">
+              <TrendingUp className="h-4 w-4 text-green-600 dark:text-green-400 mr-2" />
+              <span className="text-sm font-medium text-green-700 dark:text-green-300">
+                🎉 You're saving up to Rs. 1,198 per plan with yearly billing!
+              </span>
+            </div>
+          )}
         </div>
 
         {/* Pricing Cards */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4 sm:gap-6 lg:gap-8">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-6 lg:gap-8 mb-16">
           {plans.map((plan, index) => (
             <div
-              key={index}
-              className={`relative bg-white dark:bg-gray-800 rounded-2xl border ${plan.color} p-4 sm:p-6 lg:p-8 hover:shadow-xl transition-all duration-300 ${
-                plan.popular ? 'lg:transform lg:scale-105 lg:mt-4 lg:mb-4' : ''
+              key={`${plan.id}-${billingCycle}`}
+              className={`relative bg-white dark:bg-gray-800 rounded-2xl border-2 ${plan.borderColor} p-6 lg:p-8 hover:shadow-2xl transition-all duration-300 ${
+                plan.popular ? 'lg:transform lg:scale-105 lg:z-10' : ''
               }`}
             >
-              {plan.popular && (
-                <div className="absolute -top-3 sm:-top-4 lg:-top-6 left-1/2 transform -translate-x-1/2 z-20">
-                  <span className="bg-gradient-to-r from-purple-500 to-pink-500 text-white px-3 sm:px-4 py-1 sm:py-2 rounded-full text-xs sm:text-sm font-medium shadow-lg whitespace-nowrap">
-                    Most Popular
+              {/* Badge */}
+              {plan.badge && (
+                <div className="absolute -top-4 left-1/2 transform -translate-x-1/2 z-20">
+                  <span className={`px-3 py-1 rounded-full text-xs font-bold text-white shadow-lg ${
+                    plan.popular ? 'bg-gradient-to-r from-purple-500 to-pink-500' : 'bg-gradient-to-r from-green-500 to-emerald-500'
+                  }`}>
+                    {plan.badge}
                   </span>
                 </div>
               )}
 
+              {/* Billing Cycle Indicator */}
+              {billingCycle === 'yearly' && plan.id !== 'free' && (
+                <div className="absolute top-4 right-4">
+                  <div className="bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300 px-2 py-1 rounded-full text-xs font-medium">
+                    Yearly
+                  </div>
+                </div>
+              )}
+
               <div className="text-center">
-                <div className={`inline-flex p-2 sm:p-3 rounded-full ${plan.popular ? 'bg-purple-100 dark:bg-purple-900' : 'bg-gray-100 dark:bg-gray-700'} mb-3 sm:mb-4`}>
-                  {plan.icon}
+                {/* Icon */}
+                <div className={`inline-flex p-3 rounded-full bg-gradient-to-r ${plan.gradient} mb-4`}>
+                  <div className="text-white">
+                    {plan.icon}
+                  </div>
                 </div>
                 
-                <h3 className="text-lg sm:text-xl font-bold text-gray-900 dark:text-white mb-2">
+                {/* Plan Name */}
+                <h3 className="text-xl font-bold text-gray-900 dark:text-white mb-2">
                   {plan.name}
                 </h3>
                 
-                <div className="mb-4 sm:mb-6">
-                  <span className="text-2xl sm:text-3xl font-bold text-gray-900 dark:text-white">
-                    {plan.price}
-                  </span>
-                  {plan.duration !== 'Forever' && (
-                    <span className="text-gray-600 dark:text-gray-400 text-xs sm:text-sm block">
-                      for {plan.duration}
+                {/* Description */}
+                <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
+                  {plan.description}
+                </p>
+                
+                {/* Pricing */}
+                <div className="mb-6">
+                  <div className="flex items-center justify-center space-x-2">
+                    <span className="text-3xl font-bold text-gray-900 dark:text-white">
+                      {plan.price}
                     </span>
+                    {plan.originalPrice && (
+                      <span className="text-lg text-gray-500 line-through">
+                        {plan.originalPrice}
+                      </span>
+                    )}
+                  </div>
+                  {plan.duration !== 'Forever' && (
+                    <div className="text-gray-600 dark:text-gray-400 text-sm mt-1">
+                      <span>for {plan.duration}</span>
+                      {billingCycle === 'yearly' && plan.id !== 'free' && plan.savings > 0 && (
+                        <div className="text-green-600 dark:text-green-400 text-xs font-medium mt-1">
+                          💰 Save Rs. {plan.savings}
+                        </div>
+                      )}
+                    </div>
                   )}
                 </div>
 
-                <ul className="space-y-2 sm:space-y-3 mb-6 sm:mb-8">
+                {/* Features */}
+                <ul className="space-y-3 mb-8 text-left">
                   {plan.features.map((feature, featureIndex) => (
-                    <li key={featureIndex} className="flex items-center text-xs sm:text-sm text-gray-600 dark:text-gray-300">
-                      <Check className="h-3 w-3 sm:h-4 sm:w-4 text-green-500 mr-2 flex-shrink-0" />
+                    <li key={featureIndex} className="flex items-start text-sm text-gray-600 dark:text-gray-300">
+                      <Check className="h-4 w-4 text-green-500 mr-3 flex-shrink-0 mt-0.5" />
                       {feature}
                     </li>
                   ))}
                 </ul>
 
+                {/* CTA Button */}
                 <button
                   onClick={() => handlePlanSelect(plan)}
-                  className={`block w-full py-2 sm:py-3 px-3 sm:px-4 ${plan.buttonColor} text-white font-semibold rounded-lg transition-colors text-center text-sm sm:text-base`}
+                  className={`w-full py-3 px-4 ${plan.buttonStyle} text-white font-semibold rounded-lg transition-all transform hover:scale-105 shadow-lg hover:shadow-xl`}
                 >
-                  {plan.name === 'Free Trial' ? 'Start Free' : 'Choose Plan'}
+                  {plan.name === 'Free Starter' ? 'Start Free' : `Choose ${billingCycle === 'yearly' ? 'Yearly' : 'Monthly'}`}
+                  <ArrowRight className="h-4 w-4 ml-2 inline" />
                 </button>
               </div>
             </div>
           ))}
         </div>
 
-        {/* Payment Methods Section */}
-        <div className="mt-16 sm:mt-20 bg-white dark:bg-gray-800 rounded-2xl p-6 sm:p-8 border border-gray-200 dark:border-gray-700">
-          <h2 className="text-xl sm:text-2xl font-bold text-gray-900 dark:text-white text-center mb-6 sm:mb-8">
+        {/* Billing Comparison */}
+        {billingCycle === 'yearly' && (
+          <div className="bg-gradient-to-r from-green-50 to-emerald-50 dark:from-green-900 dark:to-emerald-900 rounded-2xl p-8 border border-green-200 dark:border-green-700 mb-16">
+            <div className="text-center">
+              <h3 className="text-2xl font-bold text-gray-900 dark:text-white mb-6">
+                🎉 Yearly Savings Breakdown
+              </h3>
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+                {plans.slice(1).map((plan, index) => (
+                  <div key={index} className="bg-white dark:bg-gray-800 rounded-xl p-6 shadow-sm">
+                    <h4 className="font-semibold text-gray-900 dark:text-white mb-4 text-lg">{plan.name}</h4>
+                    <div className="space-y-2 text-sm text-gray-600 dark:text-gray-400">
+                      <div className="flex justify-between">
+                        <span>Monthly × 12:</span>
+                        <span className="font-mono">Rs. {plan.yearlyPrice}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span>Yearly Price:</span>
+                        <span className="font-mono">Rs. {plan.actualAmount}</span>
+                      </div>
+                      <div className="border-t pt-2 flex justify-between text-green-600 dark:text-green-400 font-semibold">
+                        <span>You Save:</span>
+                        <span className="font-mono">Rs. {plan.savings}</span>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+              <p className="text-gray-600 dark:text-gray-400 mt-6 text-lg">
+                💡 <strong>Total possible savings:</strong> Up to Rs. 1,198 per year with our Enterprise plan!
+              </p>
+            </div>
+          </div>
+        )}
+
+        {/* Trust Indicators */}
+        <div className="bg-white dark:bg-gray-800 rounded-2xl p-8 border border-gray-200 dark:border-gray-700 mb-16">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+            <div className="text-center">
+              <div className="inline-flex p-3 rounded-full bg-green-100 dark:bg-green-900 mb-4">
+                <Shield className="h-6 w-6 text-green-600 dark:text-green-400" />
+              </div>
+              <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">
+                Secure Payments
+              </h3>
+              <p className="text-gray-600 dark:text-gray-400 text-sm">
+                Your payments are processed securely through our verified admin panel system
+              </p>
+            </div>
+            
+            <div className="text-center">
+              <div className="inline-flex p-3 rounded-full bg-blue-100 dark:bg-blue-900 mb-4">
+                <Clock className="h-6 w-6 text-blue-600 dark:text-blue-400" />
+              </div>
+              <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">
+                Quick Activation
+              </h3>
+              <p className="text-gray-600 dark:text-gray-400 text-sm">
+                Plans are activated within 2-4 hours after payment verification
+              </p>
+            </div>
+            
+            <div className="text-center">
+              <div className="inline-flex p-3 rounded-full bg-purple-100 dark:bg-purple-900 mb-4">
+                <TrendingUp className="h-6 w-6 text-purple-600 dark:text-purple-400" />
+              </div>
+              <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">
+                Flexible Billing
+              </h3>
+              <p className="text-gray-600 dark:text-gray-400 text-sm">
+                Switch between monthly and yearly billing anytime with prorated adjustments
+              </p>
+            </div>
+          </div>
+        </div>
+
+        {/* Payment Methods */}
+        <div className="bg-gradient-to-r from-orange-500 to-red-500 rounded-2xl p-8 text-white mb-16">
+          <h2 className="text-2xl sm:text-3xl font-bold text-center mb-8">
             Accepted Payment Methods
           </h2>
           
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 sm:gap-8 max-w-2xl mx-auto">
-            <div className="flex items-center justify-center p-4 sm:p-6 bg-gradient-to-r from-orange-500 to-red-500 rounded-xl text-white">
-              <div className="text-center">
-                <Smartphone className="h-6 w-6 sm:h-8 sm:w-8 mx-auto mb-2" />
-                <div className="text-lg sm:text-2xl font-bold mb-2">JazzCash</div>
-                <div className="text-xs sm:text-sm opacity-90">Mobile Wallet Payment</div>
-              </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 max-w-2xl mx-auto">
+            <div className="bg-white bg-opacity-20 backdrop-blur-sm rounded-xl p-6 text-center">
+              <Smartphone className="h-12 w-12 mx-auto mb-4" />
+              <div className="text-xl font-bold mb-2">JazzCash</div>
+              <div className="text-sm opacity-90">Mobile Wallet Payment</div>
+              <div className="text-xs opacity-75 mt-2">Instant & Secure</div>
             </div>
             
-            <div className="flex items-center justify-center p-4 sm:p-6 bg-gradient-to-r from-green-500 to-teal-500 rounded-xl text-white">
-              <div className="text-center">
-                <CreditCard className="h-6 w-6 sm:h-8 sm:w-8 mx-auto mb-2" />
-                <div className="text-lg sm:text-2xl font-bold mb-2">EasyPaisa</div>
-                <div className="text-xs sm:text-sm opacity-90">Digital Payment Solution</div>
-              </div>
+            <div className="bg-white bg-opacity-20 backdrop-blur-sm rounded-xl p-6 text-center">
+              <CreditCard className="h-12 w-12 mx-auto mb-4" />
+              <div className="text-xl font-bold mb-2">EasyPaisa</div>
+              <div className="text-sm opacity-90">Digital Payment Solution</div>
+              <div className="text-xs opacity-75 mt-2">Fast & Reliable</div>
             </div>
           </div>
           
-          <p className="text-center text-gray-600 dark:text-gray-400 mt-4 sm:mt-6 text-sm sm:text-base">
-            Secure payments processed through our admin panel verification system
+          <p className="text-center mt-6 text-sm opacity-90">
+            All payments are verified by our admin team within 2-4 hours
           </p>
         </div>
 
         {/* FAQ Section */}
-        <div className="mt-16 sm:mt-20">
-          <h2 className="text-2xl sm:text-3xl font-bold text-gray-900 dark:text-white text-center mb-8 sm:mb-12">
+        <div className="text-center">
+          <h2 className="text-3xl font-bold text-gray-900 dark:text-white mb-12">
             Frequently Asked Questions
           </h2>
           
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 sm:gap-8 max-w-4xl mx-auto">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-8 max-w-4xl mx-auto">
             {[
               {
-                question: 'How does the free trial work?',
-                answer: 'Get 3-5 voice generations completely free. No credit card required, no time limit.'
+                question: 'How does yearly billing work?',
+                answer: 'Pay once for the entire year and save 20% compared to monthly billing. For example, our Creator Pro plan costs Rs. 2,400 monthly (Rs. 200 × 12) but only Rs. 1,920 yearly - saving you Rs. 480!'
               },
               {
-                question: 'Can I upgrade my plan anytime?',
-                answer: 'Yes! You can upgrade your plan at any time. Your remaining credits will be preserved.'
+                question: 'What are the exact savings with yearly plans?',
+                answer: 'Quick Start: Save Rs. 238/year • Creator Pro: Save Rs. 480/year • Business: Save Rs. 840/year • Enterprise: Save Rs. 1,198/year'
               },
               {
-                question: 'What voice models are available?',
-                answer: 'We offer multiple ElevenLabs voice models including different accents, ages, and styles.'
+                question: 'Can I switch between monthly and yearly?',
+                answer: 'Yes! You can upgrade to yearly billing anytime. We\'ll prorate your current plan and apply the yearly discount to your remaining time.'
               },
               {
-                question: 'How do payments work?',
-                answer: 'Send payment to our JazzCash number, submit the transaction ID, and get verified by our admin team.'
+                question: 'What happens if I want to downgrade?',
+                answer: 'You can downgrade at the end of your current billing cycle. Your current plan features remain active until the cycle ends.'
+              },
+              {
+                question: 'Are there any setup fees?',
+                answer: 'No setup fees, no hidden charges. The price you see is exactly what you pay. Yearly plans include additional savings.'
+              },
+              {
+                question: 'Do you offer refunds for yearly plans?',
+                answer: 'Yes! We offer prorated refunds for yearly plans within 30 days if you\'ve used less than 25% of your voice credits.'
               }
             ].map((faq, index) => (
-              <div key={index} className="bg-white dark:bg-gray-800 p-4 sm:p-6 rounded-xl border border-gray-200 dark:border-gray-700">
-                <h3 className="font-semibold text-gray-900 dark:text-white mb-2 text-sm sm:text-base">
+              <div key={index} className="bg-white dark:bg-gray-800 p-6 rounded-xl border border-gray-200 dark:border-gray-700 text-left">
+                <h3 className="font-semibold text-gray-900 dark:text-white mb-3">
                   {faq.question}
                 </h3>
-                <p className="text-gray-600 dark:text-gray-300 text-xs sm:text-sm">
+                <p className="text-gray-600 dark:text-gray-300 text-sm">
                   {faq.answer}
                 </p>
               </div>
             ))}
+          </div>
+        </div>
+
+        {/* Final CTA */}
+        <div className="text-center mt-16">
+          <div className="bg-gradient-to-r from-blue-600 to-purple-600 rounded-2xl p-8 text-white">
+            <h2 className="text-2xl sm:text-3xl font-bold mb-4">
+              Ready to Transform Your Content?
+            </h2>
+            <p className="text-lg text-blue-100 mb-6">
+              Join thousands of creators using AI Voice Generator
+              {billingCycle === 'yearly' && (
+                <span className="block text-yellow-200 font-semibold mt-2">
+                  🎉 Start with yearly billing and save up to Rs. 1,198 today!
+                </span>
+              )}
+            </p>
+            <Link
+              to="/login"
+              className="inline-flex items-center px-8 py-4 bg-white text-blue-600 font-bold rounded-lg hover:bg-gray-100 transition-all transform hover:scale-105 shadow-lg"
+            >
+              Get Started Free
+              <ArrowRight className="h-5 w-5 ml-2" />
+            </Link>
           </div>
         </div>
       </div>
