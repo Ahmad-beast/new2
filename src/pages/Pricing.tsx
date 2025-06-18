@@ -36,7 +36,7 @@ const Pricing: React.FC = () => {
       price: 'Rs. 99',
       duration: '1 Day',
       features: [
-        'Unlimited generations',
+        '10 voice generations',
         'All voice models',
         'Premium quality',
         'Priority support',
@@ -53,7 +53,7 @@ const Pricing: React.FC = () => {
       price: 'Rs. 200',
       duration: '7 Days',
       features: [
-        'Everything in Daily',
+        '20 voice generations',
         'Advanced voice customization',
         'Batch processing',
         'API access',
@@ -70,7 +70,7 @@ const Pricing: React.FC = () => {
       price: 'Rs. 350',
       duration: '15 Days',
       features: [
-        'Everything in Weekly',
+        '29 voice generations',
         'Custom voice training',
         'Team collaboration',
         'Advanced analytics',
@@ -87,7 +87,7 @@ const Pricing: React.FC = () => {
       price: 'Rs. 499',
       duration: '30 Days',
       features: [
-        'Everything in Bi-Weekly',
+        'Unlimited voice generations',
         'Unlimited voice models',
         'Premium support',
         'Custom integrations',
@@ -300,8 +300,8 @@ const Pricing: React.FC = () => {
               }`}
             >
               {plan.popular && (
-                <div className="absolute -top-3 sm:-top-4 left-1/2 transform -translate-x-1/2">
-                  <span className="bg-gradient-to-r from-purple-500 to-pink-500 text-white px-3 sm:px-4 py-1 rounded-full text-xs sm:text-sm font-medium">
+                <div className="absolute -top-3 sm:-top-4 left-1/2 transform -translate-x-1/2 z-10">
+                  <span className="bg-gradient-to-r from-purple-500 to-pink-500 text-white px-3 sm:px-4 py-1 rounded-full text-xs sm:text-sm font-medium shadow-lg">
                     Most Popular
                   </span>
                 </div>
