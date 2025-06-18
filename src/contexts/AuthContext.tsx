@@ -26,7 +26,6 @@ interface AuthContextType {
   user: User | null;
   userProfile: UserProfile | null;
   loading: boolean;
-  isOffline: boolean;
   logout: () => Promise<void>;
   updateUserProfile: (profile: Partial<UserProfile>) => Promise<void>;
   checkPlanExpiry: () => Promise<void>;
@@ -50,7 +49,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [user, setUser] = useState<User | null>(null);
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
-  const [isOffline, setIsOffline] = useState(false);
 
   // Plan limits mapping
   const getPlanLimits = (plan: string, amount?: number) => {
@@ -69,61 +67,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return 0; // Free plan
   };
 
-  // Create fallback profile for offline mode
-  const createFallbackProfile = (user: User): UserProfile => {
-    return {
-      uid: user.uid,
-      email: user.email || '',
-      displayName: user.displayName || user.email?.split('@')[0] || 'User',
-      subscriptionPlan: 'free',
-      subscriptionExpiry: null,
-      voiceGenerationsUsed: 0,
-      voiceGenerationsLimit: 5,
-      isActive: true,
-      createdAt: new Date(),
-      accountStatus: 'free',
-      voicesGenerated: 0,
-      status: 'active'
-    };
-  };
-
-  // Check if user is in admin mode
-  const isAdminMode = () => {
-    const isAdmin = localStorage.getItem('isAdmin');
-    const adminLoginTime = localStorage.getItem('adminLoginTime');
-    
-    if (!isAdmin || !adminLoginTime) return false;
-    
-    // Check if admin session is still valid (24 hours)
-    const sessionAge = Date.now() - parseInt(adminLoginTime);
-    const isSessionValid = sessionAge < 24 * 60 * 60 * 1000;
-    
-    if (!isSessionValid) {
-      // Clear expired session
-      localStorage.removeItem('isAdmin');
-      localStorage.removeItem('adminLoginTime');
-      return false;
-    }
-    
-    return true;
-  };
-
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
       setUser(user);
       
-      // If in admin mode, skip user profile loading
-      if (isAdminMode()) {
-        console.log('🔧 Admin mode detected - skipping user profile loading');
-        setUserProfile(null);
-        setLoading(false);
-        setIsOffline(false);
-        return;
-      }
-      
       if (user) {
         try {
-          console.log('🔄 Attempting to fetch user profile from Firestore...');
           const userDoc = await getDoc(doc(db, 'users', user.uid));
           
           if (userDoc.exists()) {
@@ -142,13 +91,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             } as UserProfile;
             
             setUserProfile(profile);
-            setIsOffline(false);
-            console.log('✅ User profile loaded successfully from Firestore');
             
             // Check plan expiry on load
             await checkPlanExpiryForProfile(profile);
           } else {
-            console.log('📝 Creating new user profile...');
             // Create new user profile with proper defaults
             const newProfile: UserProfile = {
               uid: user.uid,
@@ -173,34 +119,28 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
               planExpiry: null
             });
             setUserProfile(newProfile);
-            setIsOffline(false);
-            console.log('✅ New user profile created successfully');
           }
-        } catch (error: any) {
-          console.warn('⚠️ Firestore connection failed, using offline mode:', error.message);
-          
-          // Check if it's a network/offline error
-          if (error.message?.includes('offline') || 
-              error.message?.includes('network') || 
-              error.message?.includes('Failed to get document because the client is offline')) {
-            setIsOffline(true);
-            console.log('🔌 App is running in offline mode');
-            
-            // Create a fallback profile for offline use
-            const fallbackProfile = createFallbackProfile(user);
-            setUserProfile(fallbackProfile);
-            console.log('✅ Fallback profile created for offline use');
-          } else {
-            console.error('❌ Unexpected Firestore error:', error);
-            // Still create fallback profile for any other errors
-            const fallbackProfile = createFallbackProfile(user);
-            setUserProfile(fallbackProfile);
-            setIsOffline(true);
-          }
+        } catch (error) {
+          console.error('Error fetching user profile:', error);
+          // Create a minimal profile if Firestore fails
+          const fallbackProfile: UserProfile = {
+            uid: user.uid,
+            email: user.email || '',
+            displayName: user.displayName || user.email?.split('@')[0] || 'User',
+            subscriptionPlan: 'free',
+            subscriptionExpiry: null,
+            voiceGenerationsUsed: 0,
+            voiceGenerationsLimit: 5,
+            isActive: true,
+            createdAt: new Date(),
+            accountStatus: 'free',
+            voicesGenerated: 0,
+            status: 'active'
+          };
+          setUserProfile(fallbackProfile);
         }
       } else {
         setUserProfile(null);
-        setIsOffline(false);
       }
       
       setLoading(false);
@@ -210,11 +150,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, []);
 
   const checkPlanExpiryForProfile = async (profile: UserProfile) => {
-    if (isOffline || isAdminMode()) {
-      console.log('⚠️ Skipping plan expiry check - app is offline or in admin mode');
-      return;
-    }
-
     if (profile.accountStatus === 'pro' && profile.planExpiry) {
       const now = new Date();
       if (now > profile.planExpiry) {
@@ -239,42 +174,30 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           }, { merge: true });
           
           setUserProfile(updatedProfile);
-          console.log('✅ Plan expired, user reverted to free tier');
+          console.log('Plan expired, user reverted to free tier');
         } catch (error) {
-          console.warn('⚠️ Error updating expired plan (offline mode):', error);
-          // Update locally even if Firestore fails
-          setUserProfile(updatedProfile);
+          console.error('Error updating expired plan:', error);
         }
       }
     }
   };
 
   const checkPlanExpiry = async () => {
-    if (userProfile && !isAdminMode()) {
+    if (userProfile) {
       await checkPlanExpiryForProfile(userProfile);
     }
   };
 
   const logout = async () => {
     try {
-      // Clear admin session if exists
-      if (isAdminMode()) {
-        localStorage.removeItem('isAdmin');
-        localStorage.removeItem('adminLoginTime');
-        console.log('🔧 Admin session cleared');
-      }
-      
-      // Sign out from Firebase if user is logged in
-      if (user) {
-        await signOut(auth);
-      }
+      await signOut(auth);
     } catch (error) {
       console.error('Error logging out:', error);
     }
   };
 
   const updateUserProfile = async (updates: Partial<UserProfile>) => {
-    if ((!user && !isAdminMode()) || !userProfile) return;
+    if (!user || !userProfile) return;
 
     try {
       const updatedProfile = { ...userProfile, ...updates };
@@ -293,24 +216,17 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         updatedProfile.subscriptionPlan = 'paid';
       }
       
-      // Update local state immediately
-      setUserProfile(updatedProfile);
+      await setDoc(doc(db, 'users', user.uid), {
+        ...updatedProfile,
+        createdAt: updatedProfile.createdAt,
+        subscriptionExpiry: updatedProfile.subscriptionExpiry,
+        upgradedAt: updatedProfile.upgradedAt,
+        planExpiry: updatedProfile.planExpiry
+      }, { merge: true });
       
-      // Try to update Firestore if online and not in admin mode
-      if (!isOffline && !isAdminMode() && user) {
-        await setDoc(doc(db, 'users', user.uid), {
-          ...updatedProfile,
-          createdAt: updatedProfile.createdAt,
-          subscriptionExpiry: updatedProfile.subscriptionExpiry,
-          upgradedAt: updatedProfile.upgradedAt,
-          planExpiry: updatedProfile.planExpiry
-        }, { merge: true });
-        console.log('✅ User profile updated in Firestore');
-      } else {
-        console.log('⚠️ Profile updated locally only (offline mode or admin mode)');
-      }
+      setUserProfile(updatedProfile);
     } catch (error) {
-      console.warn('⚠️ Error updating user profile:', error);
+      console.error('Error updating user profile:', error);
       // Update local state even if Firestore fails
       setUserProfile(prev => prev ? { ...prev, ...updates } : null);
     }
@@ -322,7 +238,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const incrementVoiceGeneration = async (): Promise<boolean> => {
-    if ((!user && !isAdminMode()) || !userProfile) return false;
+    if (!user || !userProfile) return false;
 
     // Check if account is active first
     if (!isAccountActive()) {
@@ -330,10 +246,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       return false;
     }
 
-    // Check plan expiry first (skip if offline or admin mode)
-    if (!isOffline && !isAdminMode()) {
-      await checkPlanExpiry();
-    }
+    // Check plan expiry first
+    await checkPlanExpiry();
     
     const currentProfile = userProfile;
     const currentVoices = currentProfile.voicesGenerated || 0;
@@ -403,7 +317,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     user,
     userProfile,
     loading,
-    isOffline,
     logout,
     updateUserProfile,
     checkPlanExpiry,
