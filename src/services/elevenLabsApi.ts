@@ -31,10 +31,92 @@ export class ElevenLabsAPI {
 
   constructor() {
     this.apiKey = ELEVENLABS_API_KEY || '';
+    
+    // Enhanced debugging for mobile devices
+    this.debugConfiguration();
+    
     if (this.isConfigured()) {
       console.log('✅ ElevenLabs API key loaded successfully');
     } else {
       console.warn('⚠️ ElevenLabs API key not configured. Using demo mode.');
+    }
+  }
+
+  private debugConfiguration() {
+    // Comprehensive debugging for mobile devices
+    console.log('🔍 ElevenLabs API Configuration Debug:', {
+      // Environment info
+      userAgent: navigator.userAgent,
+      isMobile: /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent),
+      platform: navigator.platform,
+      
+      // API key info (safely logged)
+      hasApiKey: !!this.apiKey,
+      apiKeyLength: this.apiKey ? this.apiKey.length : 0,
+      apiKeyPrefix: this.apiKey ? this.apiKey.substring(0, 8) + '...' : 'undefined',
+      
+      // Environment variables debug
+      envViteElevenLabsKey: import.meta.env.VITE_ELEVENLABS_API_KEY ? 'present' : 'missing',
+      envMode: import.meta.env.MODE,
+      envProd: import.meta.env.PROD,
+      envDev: import.meta.env.DEV,
+      
+      // All VITE_ environment variables (safely)
+      allViteEnvs: Object.keys(import.meta.env)
+        .filter(key => key.startsWith('VITE_'))
+        .reduce((acc, key) => {
+          acc[key] = import.meta.env[key] ? 'present' : 'missing';
+          return acc;
+        }, {} as Record<string, string>),
+      
+      // Browser capabilities
+      fetchSupported: typeof fetch !== 'undefined',
+      axiosAvailable: typeof axios !== 'undefined',
+      
+      // Network info (if available)
+      connection: (navigator as any).connection ? {
+        effectiveType: (navigator as any).connection.effectiveType,
+        downlink: (navigator as any).connection.downlink,
+        rtt: (navigator as any).connection.rtt
+      } : 'not available',
+      
+      // Current timestamp for debugging
+      timestamp: new Date().toISOString()
+    });
+
+    // Additional mobile-specific checks
+    if (/Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent)) {
+      console.log('📱 Mobile device detected - performing additional checks...');
+      
+      // Check if running in standalone mode (PWA)
+      const isStandalone = window.matchMedia('(display-mode: standalone)').matches || 
+                          (window.navigator as any).standalone === true;
+      
+      console.log('📱 Mobile environment details:', {
+        isStandalone,
+        viewport: {
+          width: window.innerWidth,
+          height: window.innerHeight,
+          devicePixelRatio: window.devicePixelRatio
+        },
+        screen: {
+          width: screen.width,
+          height: screen.height,
+          orientation: screen.orientation?.type || 'unknown'
+        }
+      });
+    }
+
+    // Test environment variable access
+    try {
+      const testEnv = import.meta.env.VITE_ELEVENLABS_API_KEY;
+      console.log('🧪 Direct env access test:', {
+        success: true,
+        hasValue: !!testEnv,
+        type: typeof testEnv
+      });
+    } catch (error) {
+      console.error('❌ Environment variable access failed:', error);
     }
   }
 
@@ -136,13 +218,33 @@ export class ElevenLabsAPI {
     // For real users with API key, try to fetch from ElevenLabs
     try {
       console.log('🔄 Fetching voices from ElevenLabs API...');
+      
+      // Enhanced request with mobile-specific headers and error handling
       const response = await axios.get(`${BASE_URL}/voices`, {
         headers: {
           'xi-api-key': this.apiKey,
-          'Accept': 'application/json'
+          'Accept': 'application/json',
+          'Content-Type': 'application/json',
+          // Add mobile-friendly headers
+          'Cache-Control': 'no-cache',
+          'Pragma': 'no-cache'
         },
-        timeout: 10000
+        timeout: 15000, // Increased timeout for mobile networks
+        // Add retry logic for mobile networks
+        validateStatus: (status) => status < 500, // Don't throw on 4xx errors
       });
+
+      console.log('📡 API Response details:', {
+        status: response.status,
+        statusText: response.statusText,
+        headers: response.headers,
+        dataType: typeof response.data,
+        hasVoices: response.data?.voices ? response.data.voices.length : 0
+      });
+
+      if (response.status !== 200) {
+        throw new Error(`API returned status ${response.status}: ${response.statusText}`);
+      }
 
       if (response.data && response.data.voices) {
         const apiVoices = response.data.voices.map((voice: any) => ({
@@ -161,6 +263,24 @@ export class ElevenLabsAPI {
     } catch (error: any) {
       console.error('❌ Error fetching voices from ElevenLabs:', error);
       
+      // Enhanced error logging for mobile debugging
+      console.error('🔍 Detailed error information:', {
+        message: error.message,
+        code: error.code,
+        status: error.response?.status,
+        statusText: error.response?.statusText,
+        responseData: error.response?.data,
+        requestConfig: {
+          url: error.config?.url,
+          method: error.config?.method,
+          headers: error.config?.headers ? Object.keys(error.config.headers) : [],
+          timeout: error.config?.timeout
+        },
+        isNetworkError: !error.response,
+        isTimeoutError: error.code === 'ECONNABORTED',
+        userAgent: navigator.userAgent
+      });
+      
       // Throw specific errors for real users instead of falling back to demo
       if (error.response?.status === 401) {
         throw new Error('Invalid ElevenLabs API key. Please check your configuration.');
@@ -168,6 +288,8 @@ export class ElevenLabsAPI {
         throw new Error('ElevenLabs rate limit exceeded. Please try again later.');
       } else if (error.code === 'ENOTFOUND' || error.code === 'NETWORK_ERROR') {
         throw new Error('Network error connecting to ElevenLabs. Please check your internet connection.');
+      } else if (error.code === 'ECONNABORTED') {
+        throw new Error('Request timed out. Please check your internet connection and try again.');
       } else {
         throw new Error('Failed to load voices from ElevenLabs. Please try again.');
       }
@@ -207,7 +329,9 @@ export class ElevenLabsAPI {
       isApiConfigured: this.isConfigured(),
       containsUrdu: containsUrdu,
       encoding: 'UTF-8',
-      unicodeNormalized: true
+      unicodeNormalized: true,
+      userAgent: navigator.userAgent,
+      isMobile: /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent)
     });
 
     // If no API key configured, use demo mode
@@ -241,12 +365,30 @@ export class ElevenLabsAPI {
           headers: {
             'Accept': 'audio/mpeg',
             'Content-Type': 'application/json; charset=UTF-8', // Explicitly set UTF-8 encoding
-            'xi-api-key': this.apiKey
+            'xi-api-key': this.apiKey,
+            // Add mobile-friendly headers
+            'Cache-Control': 'no-cache',
+            'Pragma': 'no-cache'
           },
           responseType: 'blob',
-          timeout: 30000
+          timeout: 45000, // Increased timeout for voice generation on mobile
+          // Add retry logic for mobile networks
+          validateStatus: (status) => status < 500, // Don't throw on 4xx errors
         }
       );
+
+      console.log('📡 Speech generation response:', {
+        status: response.status,
+        statusText: response.statusText,
+        contentType: response.headers['content-type'],
+        contentLength: response.headers['content-length'],
+        blobSize: response.data?.size || 0,
+        userAgent: navigator.userAgent
+      });
+
+      if (response.status !== 200) {
+        throw new Error(`API returned status ${response.status}: ${response.statusText}`);
+      }
 
       if (!response.data || response.data.size === 0) {
         throw new Error('Received empty audio response from ElevenLabs');
@@ -256,6 +398,26 @@ export class ElevenLabsAPI {
       return response.data;
     } catch (error: any) {
       console.error('❌ ElevenLabs API speech generation failed:', error);
+      
+      // Enhanced error logging for mobile debugging
+      console.error('🔍 Detailed speech generation error:', {
+        message: error.message,
+        code: error.code,
+        status: error.response?.status,
+        statusText: error.response?.statusText,
+        responseData: error.response?.data,
+        requestConfig: {
+          url: error.config?.url,
+          method: error.config?.method,
+          headers: error.config?.headers ? Object.keys(error.config.headers) : [],
+          timeout: error.config?.timeout
+        },
+        isNetworkError: !error.response,
+        isTimeoutError: error.code === 'ECONNABORTED',
+        userAgent: navigator.userAgent,
+        textLength: cleanText.length,
+        voiceId: voiceId
+      });
       
       // Throw specific errors for real users instead of falling back to demo
       if (error.response?.status === 401) {
@@ -490,7 +652,21 @@ export class ElevenLabsAPI {
   }
 
   isConfigured(): boolean {
-    return !!(this.apiKey && this.apiKey.trim() !== '' && this.apiKey !== 'your_elevenlabs_api_key_here');
+    const configured = !!(this.apiKey && this.apiKey.trim() !== '' && this.apiKey !== 'your_elevenlabs_api_key_here');
+    
+    // Additional mobile debugging
+    if (!configured) {
+      console.log('🔍 API not configured - debugging info:', {
+        hasApiKey: !!this.apiKey,
+        apiKeyType: typeof this.apiKey,
+        apiKeyLength: this.apiKey ? this.apiKey.length : 0,
+        envViteKey: import.meta.env.VITE_ELEVENLABS_API_KEY ? 'present' : 'missing',
+        userAgent: navigator.userAgent,
+        isMobile: /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent)
+      });
+    }
+    
+    return configured;
   }
 }
 
