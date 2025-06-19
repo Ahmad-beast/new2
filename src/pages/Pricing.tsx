@@ -295,7 +295,7 @@ const Pricing: React.FC = () => {
               <div className="space-y-3 text-sm">
                 <div className="flex justify-between items-center p-3 bg-white dark:bg-gray-800 rounded-lg">
                   <span className="font-medium text-gray-700 dark:text-gray-300">Account Title:</span>
-                  <span className="text-gray-900 dark:text-white font-semibold">Muhammad Zubair</span>
+                  <span className="text-gray-900 dark:text-white font-semibold">Ahmad Fraz</span>
                 </div>
                 
                 <div className="flex justify-between items-center p-3 bg-white dark:bg-gray-800 rounded-lg">
