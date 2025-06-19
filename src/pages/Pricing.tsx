@@ -314,13 +314,13 @@ const Pricing: React.FC = () => {
                 
                 <div className="flex justify-between items-center p-3 bg-white dark:bg-gray-800 rounded-lg">
                   <span className="font-medium text-gray-700 dark:text-gray-300">Payment Method:</span>
-                  <span className="text-gray-900 dark:text-white font-semibold">JazzCash</span>
+                  <span className="text-gray-900 dark:text-white font-semibold">NayaPay</span>
                 </div>
               </div>
 
               <div className="mt-4 p-3 bg-yellow-50 dark:bg-yellow-900 rounded-lg border border-yellow-200 dark:border-yellow-700">
                 <p className="text-xs text-yellow-700 dark:text-yellow-300">
-                  <strong>Step 1:</strong> Send {selectedPlan?.price} to the above JazzCash number<br/>
+                  <strong>Step 1:</strong> Send {selectedPlan?.price} to the above NayaPay number<br/>
                   <strong>Step 2:</strong> Enter the transaction ID below<br/>
                   <strong>Step 3:</strong> Wait for admin verification (usually within 2-4 hours)
                 </p>
@@ -341,7 +341,7 @@ const Pricing: React.FC = () => {
                   placeholder="Enter your transaction ID"
                 />
                 <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                  You'll receive this after completing the JazzCash payment
+                  You'll receive this after completing the NayaPay payment
                 </p>
               </div>
               
@@ -637,7 +637,7 @@ const Pricing: React.FC = () => {
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6 max-w-2xl mx-auto">
             <div className="bg-white bg-opacity-20 backdrop-blur-sm rounded-xl p-6 text-center">
               <Smartphone className="h-12 w-12 mx-auto mb-4" />
-              <div className="text-xl font-bold mb-2">JazzCash</div>
+              <div className="text-xl font-bold mb-2">NayaPay</div>
               <div className="text-sm opacity-90">Mobile Wallet Payment</div>
               <div className="text-xs opacity-75 mt-2">Instant & Secure</div>
             </div>
