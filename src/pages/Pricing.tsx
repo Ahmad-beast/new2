@@ -210,9 +210,9 @@ const Pricing: React.FC = () => {
           originalAmount: selectedPlan.originalPrice ? parseInt(selectedPlan.originalPrice.replace('Rs. ', '')) : null,
           savings: selectedPlan.savings || 0,
           tid: transactionId.trim(),
-          accountType: 'JazzCash',
-          accountHolder: 'Muhammad Zubair',
-          accountNumber: '0306-4482383',
+          accountType: 'NayaPay',
+          accountHolder: 'Ahmad Fraz',
+          accountNumber: '03064482383',
           status: 'pending',
           createdAt: new Date(),
           timestamp: Date.now()
