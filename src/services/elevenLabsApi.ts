@@ -15,6 +15,7 @@ interface Voice {
     description?: string;
     age?: string;
     use_case?: string;
+    language?: string;
   };
 }
 
@@ -126,11 +127,13 @@ export class ElevenLabsAPI {
       }
     ];
 
+    // Only use demo voices when API key is not configured
     if (!this.isConfigured()) {
-      console.log('🎭 Using demo voices (API key not configured)');
+      console.log('🎭 Demo mode: Using demo voices (API key not configured)');
       return demoVoices;
     }
 
+    // For real users with API key, try to fetch from ElevenLabs
     try {
       console.log('🔄 Fetching voices from ElevenLabs API...');
       const response = await axios.get(`${BASE_URL}/voices`, {
@@ -154,25 +157,20 @@ export class ElevenLabsAPI {
         return apiVoices;
       }
 
-      console.log('⚠️ No voices found in API response, using demo voices');
-      return demoVoices;
+      throw new Error('No voices found in API response');
     } catch (error: any) {
       console.error('❌ Error fetching voices from ElevenLabs:', error);
       
+      // Throw specific errors for real users instead of falling back to demo
       if (error.response?.status === 401) {
-        console.error('❌ Invalid ElevenLabs API key');
-        toast?.error?.('Invalid ElevenLabs API key - Using demo voices');
+        throw new Error('Invalid ElevenLabs API key. Please check your configuration.');
       } else if (error.response?.status === 429) {
-        console.error('❌ ElevenLabs rate limit exceeded');
-        toast?.error?.('Rate limit exceeded - Using demo voices');
+        throw new Error('ElevenLabs rate limit exceeded. Please try again later.');
       } else if (error.code === 'ENOTFOUND' || error.code === 'NETWORK_ERROR') {
-        console.error('❌ Network error connecting to ElevenLabs');
-        toast?.error?.('Network error - Using demo voices');
+        throw new Error('Network error connecting to ElevenLabs. Please check your internet connection.');
+      } else {
+        throw new Error('Failed to load voices from ElevenLabs. Please try again.');
       }
-      
-      // Always fallback to demo voices
-      console.log('🎭 Falling back to demo voices');
-      return demoVoices;
     }
   }
 
@@ -197,7 +195,7 @@ export class ElevenLabsAPI {
       throw new Error('Text is too long. Maximum 5000 characters allowed.');
     }
 
-    // Detect if text contains Urdu/Arabic characters
+    // Detect if text contains Urdu/Hindi characters
     const containsUrdu = this.containsUrduText(cleanText);
 
     // Log the exact text being processed for debugging
@@ -212,15 +210,15 @@ export class ElevenLabsAPI {
       unicodeNormalized: true
     });
 
-    // If no API key configured, always use demo mode
+    // If no API key configured, use demo mode
     if (!this.isConfigured()) {
       console.log('🎭 Demo mode: Creating mock audio file for text:', cleanText);
       return this.createDemoAudio(cleanText);
     }
 
-    // Try real API call, but fallback to demo on any error
+    // For real users with API key, make actual API call
     try {
-      console.log('🎤 Attempting ElevenLabs API call...');
+      console.log('🎤 Making ElevenLabs API call...');
       
       // Prepare request payload with proper encoding
       const requestPayload = {
@@ -257,16 +255,22 @@ export class ElevenLabsAPI {
       console.log(`✅ Speech generated successfully with ElevenLabs API${containsUrdu ? ' (Urdu text processed)' : ''}`);
       return response.data;
     } catch (error: any) {
-      console.warn('⚠️ ElevenLabs API failed, falling back to demo mode:', error.message);
+      console.error('❌ ElevenLabs API speech generation failed:', error);
       
-      // Log specific error details for Urdu text issues
-      if (containsUrdu) {
-        console.warn('⚠️ Urdu text detected in failed API call - this might be a model or encoding issue');
+      // Throw specific errors for real users instead of falling back to demo
+      if (error.response?.status === 401) {
+        throw new Error('Invalid ElevenLabs API key. Please check your configuration.');
+      } else if (error.response?.status === 429) {
+        throw new Error('ElevenLabs rate limit exceeded. Please try again later.');
+      } else if (error.response?.status === 422) {
+        throw new Error('Invalid text or voice parameters. Please check your input.');
+      } else if (error.code === 'ENOTFOUND' || error.code === 'NETWORK_ERROR') {
+        throw new Error('Network error connecting to ElevenLabs. Please check your internet connection.');
+      } else if (error.code === 'ECONNABORTED') {
+        throw new Error('Voice generation timed out. Please try again with shorter text.');
+      } else {
+        throw new Error('Voice generation failed. Please try again.');
       }
-      
-      // Always fallback to demo mode instead of throwing errors
-      console.log('🎭 Fallback: Creating demo audio for text:', cleanText);
-      return this.createDemoAudio(cleanText);
     }
   }
 
