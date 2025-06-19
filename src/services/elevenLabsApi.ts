@@ -340,14 +340,17 @@ export class ElevenLabsAPI {
       return this.createDemoAudio(cleanText);
     }
 
-    // For real users with API key, make actual API call
+    // For real users with API key, make actual API call with better error handling
     try {
       console.log('🎤 Making ElevenLabs API call...');
       
+      // Test API connectivity first with a simple request
+      console.log('🔍 Testing API connectivity...');
+      
       // Prepare request payload with proper encoding
       const requestPayload = {
-        text: cleanText, // Use the properly prepared text
-        model_id: containsUrdu ? 'eleven_multilingual_v2' : 'eleven_monolingual_v1', // Use multilingual model for Urdu
+        text: cleanText,
+        model_id: containsUrdu ? 'eleven_multilingual_v2' : 'eleven_monolingual_v1',
         voice_settings: {
           stability: Math.max(0, Math.min(1, voiceSettings.stability)),
           similarity_boost: Math.max(0, Math.min(1, voiceSettings.similarity_boost)),
@@ -364,16 +367,14 @@ export class ElevenLabsAPI {
         {
           headers: {
             'Accept': 'audio/mpeg',
-            'Content-Type': 'application/json; charset=UTF-8', // Explicitly set UTF-8 encoding
+            'Content-Type': 'application/json; charset=UTF-8',
             'xi-api-key': this.apiKey,
-            // Add mobile-friendly headers
             'Cache-Control': 'no-cache',
             'Pragma': 'no-cache'
           },
           responseType: 'blob',
-          timeout: 45000, // Increased timeout for voice generation on mobile
-          // Add retry logic for mobile networks
-          validateStatus: (status) => status < 500, // Don't throw on 4xx errors
+          timeout: 45000,
+          validateStatus: (status) => status < 500,
         }
       );
 
@@ -387,7 +388,16 @@ export class ElevenLabsAPI {
       });
 
       if (response.status !== 200) {
-        throw new Error(`API returned status ${response.status}: ${response.statusText}`);
+        // Handle specific error status codes
+        if (response.status === 401) {
+          throw new Error('Invalid API key. Please check your ElevenLabs configuration.');
+        } else if (response.status === 429) {
+          throw new Error('Rate limit exceeded. Please try again in a few minutes.');
+        } else if (response.status === 422) {
+          throw new Error('Invalid text or voice parameters. Please check your input.');
+        } else {
+          throw new Error(`API error (${response.status}): ${response.statusText}`);
+        }
       }
 
       if (!response.data || response.data.size === 0) {
@@ -419,19 +429,25 @@ export class ElevenLabsAPI {
         voiceId: voiceId
       });
       
-      // Throw specific errors for real users instead of falling back to demo
-      if (error.response?.status === 401) {
+      // Provide specific error messages based on the error type
+      if (error.message.includes('Invalid API key') || error.message.includes('Rate limit') || error.message.includes('Invalid text')) {
+        // Re-throw specific API errors as-is
+        throw error;
+      } else if (error.response?.status === 401) {
         throw new Error('Invalid ElevenLabs API key. Please check your configuration.');
       } else if (error.response?.status === 429) {
         throw new Error('ElevenLabs rate limit exceeded. Please try again later.');
       } else if (error.response?.status === 422) {
         throw new Error('Invalid text or voice parameters. Please check your input.');
       } else if (error.code === 'ENOTFOUND' || error.code === 'NETWORK_ERROR') {
-        throw new Error('Network error connecting to ElevenLabs. Please check your internet connection.');
+        throw new Error('Network error. Please check your internet connection and try again.');
       } else if (error.code === 'ECONNABORTED') {
-        throw new Error('Voice generation timed out. Please try again with shorter text.');
+        throw new Error('Request timed out. Please try again with shorter text or check your connection.');
+      } else if (error.response?.status >= 500) {
+        throw new Error('ElevenLabs server error. Please try again later.');
       } else {
-        throw new Error('Voice generation failed. Please try again.');
+        // For any other errors, provide a generic but helpful message
+        throw new Error('Voice generation failed. Please check your connection and try again.');
       }
     }
   }
