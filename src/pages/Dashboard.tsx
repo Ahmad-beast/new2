@@ -20,7 +20,10 @@ import {
   Zap,
   UserX,
   MessageCircle,
-  Search
+  Search,
+  Smartphone,
+  Wifi,
+  WifiOff
 } from 'lucide-react';
 import { elevenLabsApi } from '../services/elevenLabsApi';
 import { collection, addDoc } from 'firebase/firestore';
@@ -58,6 +61,8 @@ const Dashboard: React.FC = () => {
   const [voiceFilter, setVoiceFilter] = useState('all');
   const [showDeactivatedModal, setShowDeactivatedModal] = useState(false);
   const [voiceSearchQuery, setVoiceSearchQuery] = useState('');
+  const [showMobileDebugModal, setShowMobileDebugModal] = useState(false);
+  const [networkStatus, setNetworkStatus] = useState<'online' | 'offline'>('online');
 
   // Detect if text contains Urdu/Hindi characters
   const containsUrduHindi = (text: string): boolean => {
@@ -75,6 +80,47 @@ const Dashboard: React.FC = () => {
     if (hindiDevanagariRegex.test(text)) return 'hindi';
     return 'english';
   };
+
+  // Mobile-specific debugging and network monitoring
+  useEffect(() => {
+    // Monitor network status
+    const updateNetworkStatus = () => {
+      setNetworkStatus(navigator.onLine ? 'online' : 'offline');
+    };
+
+    window.addEventListener('online', updateNetworkStatus);
+    window.addEventListener('offline', updateNetworkStatus);
+
+    // Initial network status
+    updateNetworkStatus();
+
+    // Mobile debugging on component mount
+    const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+    if (isMobile) {
+      console.log('📱 Mobile Dashboard loaded - performing environment checks...');
+      
+      // Check API configuration on mobile
+      setTimeout(() => {
+        const isConfigured = elevenLabsApi.isConfigured();
+        console.log('📱 Mobile API configuration check:', {
+          isConfigured,
+          hasEnvVar: !!import.meta.env.VITE_ELEVENLABS_API_KEY,
+          envVarType: typeof import.meta.env.VITE_ELEVENLABS_API_KEY,
+          userAgent: navigator.userAgent,
+          networkStatus: navigator.onLine ? 'online' : 'offline'
+        });
+
+        if (!isConfigured && import.meta.env.VITE_ELEVENLABS_API_KEY) {
+          console.warn('⚠️ Mobile: Environment variable exists but API not configured properly');
+        }
+      }, 1000);
+    }
+
+    return () => {
+      window.removeEventListener('online', updateNetworkStatus);
+      window.removeEventListener('offline', updateNetworkStatus);
+    };
+  }, []);
 
   useEffect(() => {
     loadVoices();
@@ -100,6 +146,18 @@ const Dashboard: React.FC = () => {
       }
     } catch (error: any) {
       console.error('❌ Error loading voices:', error);
+      
+      // Enhanced mobile error handling
+      const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+      if (isMobile) {
+        console.error('📱 Mobile voice loading error details:', {
+          error: error.message,
+          isConfigured: elevenLabsApi.isConfigured(),
+          hasEnvVar: !!import.meta.env.VITE_ELEVENLABS_API_KEY,
+          networkStatus: navigator.onLine ? 'online' : 'offline'
+        });
+      }
+      
       toast.error(error.message || 'Failed to load voices. Please try again.');
     } finally {
       setIsLoading(false);
@@ -122,7 +180,9 @@ const Dashboard: React.FC = () => {
         generatedAt: new Date(),
         timestamp: Date.now(),
         isApiGenerated: elevenLabsApi.isConfigured(),
-        audioSize: voiceData?.size || 0
+        audioSize: voiceData?.size || 0,
+        userAgent: navigator.userAgent,
+        isMobile: /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent)
       });
       
       console.log('✅ Voice generation logged to admin panel');
@@ -136,6 +196,12 @@ const Dashboard: React.FC = () => {
     // Check if account is active first
     if (!isAccountActive()) {
       setShowDeactivatedModal(true);
+      return;
+    }
+
+    // Check network status
+    if (networkStatus === 'offline') {
+      toast.error('No internet connection. Please check your network and try again.');
       return;
     }
 
@@ -172,6 +238,8 @@ const Dashboard: React.FC = () => {
 
     // Log the exact text being sent for debugging
     const textToGenerate = text.trim();
+    const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+    
     console.log('🎤 Starting voice generation with:', {
       text: textToGenerate,
       textLength: textToGenerate.length,
@@ -181,7 +249,10 @@ const Dashboard: React.FC = () => {
       userPlan: userProfile.plan,
       accountStatus: userProfile.accountStatus,
       remainingVoices: getRemainingVoices(),
-      isAccountActive: isAccountActive()
+      isAccountActive: isAccountActive(),
+      isMobile: isMobile,
+      networkStatus: networkStatus,
+      isApiConfigured: elevenLabsApi.isConfigured()
     });
 
     setIsGenerating(true);
@@ -208,6 +279,18 @@ const Dashboard: React.FC = () => {
       console.log('✅ Voice generation completed successfully');
     } catch (error: any) {
       console.error('❌ Voice generation error:', error);
+      
+      // Enhanced mobile error logging
+      if (isMobile) {
+        console.error('📱 Mobile voice generation error details:', {
+          error: error.message,
+          isConfigured: elevenLabsApi.isConfigured(),
+          hasEnvVar: !!import.meta.env.VITE_ELEVENLABS_API_KEY,
+          networkStatus: networkStatus,
+          textLength: textToGenerate.length,
+          voiceId: selectedVoice.voice_id
+        });
+      }
       
       // Revert the voice count increment on error
       if (userProfile.voicesGenerated && userProfile.voicesGenerated > 0) {
@@ -317,6 +400,112 @@ const Dashboard: React.FC = () => {
     return `${diffDays} days left`;
   };
 
+  // Mobile Debug Modal Component
+  const MobileDebugModal = () => {
+    const debugInfo = {
+      // Environment
+      userAgent: navigator.userAgent,
+      isMobile: /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent),
+      platform: navigator.platform,
+      networkStatus: networkStatus,
+      
+      // API Configuration
+      isApiConfigured: elevenLabsApi.isConfigured(),
+      hasEnvVar: !!import.meta.env.VITE_ELEVENLABS_API_KEY,
+      envVarType: typeof import.meta.env.VITE_ELEVENLABS_API_KEY,
+      envMode: import.meta.env.MODE,
+      
+      // Browser capabilities
+      fetchSupported: typeof fetch !== 'undefined',
+      audioContextSupported: !!(window.AudioContext || (window as any).webkitAudioContext),
+      
+      // Screen info
+      viewport: {
+        width: window.innerWidth,
+        height: window.innerHeight,
+        devicePixelRatio: window.devicePixelRatio
+      },
+      
+      // Connection info
+      connection: (navigator as any).connection ? {
+        effectiveType: (navigator as any).connection.effectiveType,
+        downlink: (navigator as any).connection.downlink,
+        rtt: (navigator as any).connection.rtt
+      } : 'not available'
+    };
+
+    return (
+      <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+        <div className="bg-white dark:bg-gray-800 rounded-xl p-6 w-full max-w-lg max-h-[90vh] overflow-y-auto">
+          <div className="flex justify-between items-center mb-4">
+            <h3 className="text-lg font-bold text-gray-900 dark:text-white">Mobile Debug Info</h3>
+            <button
+              onClick={() => setShowMobileDebugModal(false)}
+              className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
+            >
+              <X className="h-5 w-5" />
+            </button>
+          </div>
+          
+          <div className="space-y-4 text-sm">
+            <div>
+              <h4 className="font-semibold text-gray-900 dark:text-white mb-2">Environment</h4>
+              <div className="bg-gray-50 dark:bg-gray-700 p-3 rounded">
+                <p><strong>Mobile:</strong> {debugInfo.isMobile ? 'Yes' : 'No'}</p>
+                <p><strong>Platform:</strong> {debugInfo.platform}</p>
+                <p><strong>Network:</strong> {debugInfo.networkStatus}</p>
+                <p><strong>Mode:</strong> {debugInfo.envMode}</p>
+              </div>
+            </div>
+            
+            <div>
+              <h4 className="font-semibold text-gray-900 dark:text-white mb-2">API Configuration</h4>
+              <div className="bg-gray-50 dark:bg-gray-700 p-3 rounded">
+                <p><strong>API Configured:</strong> {debugInfo.isApiConfigured ? 'Yes' : 'No'}</p>
+                <p><strong>Env Var Present:</strong> {debugInfo.hasEnvVar ? 'Yes' : 'No'}</p>
+                <p><strong>Env Var Type:</strong> {debugInfo.envVarType}</p>
+              </div>
+            </div>
+            
+            <div>
+              <h4 className="font-semibold text-gray-900 dark:text-white mb-2">Browser Support</h4>
+              <div className="bg-gray-50 dark:bg-gray-700 p-3 rounded">
+                <p><strong>Fetch API:</strong> {debugInfo.fetchSupported ? 'Yes' : 'No'}</p>
+                <p><strong>Audio Context:</strong> {debugInfo.audioContextSupported ? 'Yes' : 'No'}</p>
+              </div>
+            </div>
+            
+            <div>
+              <h4 className="font-semibold text-gray-900 dark:text-white mb-2">Screen Info</h4>
+              <div className="bg-gray-50 dark:bg-gray-700 p-3 rounded">
+                <p><strong>Viewport:</strong> {debugInfo.viewport.width}x{debugInfo.viewport.height}</p>
+                <p><strong>Device Pixel Ratio:</strong> {debugInfo.viewport.devicePixelRatio}</p>
+              </div>
+            </div>
+            
+            {debugInfo.connection !== 'not available' && (
+              <div>
+                <h4 className="font-semibold text-gray-900 dark:text-white mb-2">Connection</h4>
+                <div className="bg-gray-50 dark:bg-gray-700 p-3 rounded">
+                  <p><strong>Type:</strong> {debugInfo.connection.effectiveType}</p>
+                  <p><strong>Downlink:</strong> {debugInfo.connection.downlink} Mbps</p>
+                  <p><strong>RTT:</strong> {debugInfo.connection.rtt} ms</p>
+                </div>
+              </div>
+            )}
+          </div>
+          
+          <button
+            onClick={() => setShowMobileDebugModal(false)}
+            className="mt-4 w-full bg-gray-300 dark:bg-gray-600 text-gray-700 dark:text-gray-300 py-2 px-4 rounded-lg hover:bg-gray-400 dark:hover:bg-gray-500 transition-colors"
+          >
+            Close
+          </button>
+        </div>
+      </div>
+    );
+  };
+
   if (isLoading) {
     return (
       <div className="min-h-screen bg-gray-50 dark:bg-gray-900 flex items-center justify-center">
@@ -349,6 +538,7 @@ const Dashboard: React.FC = () => {
   const accountActive = isAccountActive();
   const detectedLanguage = detectTextLanguage(text);
   const isUrduHindiText = containsUrduHindi(text);
+  const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
 
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
@@ -373,6 +563,16 @@ const Dashboard: React.FC = () => {
                     <span className="text-xs sm:text-sm font-bold">DEACTIVATED</span>
                   </div>
                 )}
+                {/* Mobile Debug Button */}
+                {isMobile && (
+                  <button
+                    onClick={() => setShowMobileDebugModal(true)}
+                    className="flex items-center bg-blue-500 text-white px-2 py-1 rounded-full w-fit ml-0 sm:ml-2 mt-2 sm:mt-0 text-xs"
+                  >
+                    <Smartphone className="h-3 w-3 mr-1" />
+                    Debug
+                  </button>
+                )}
               </div>
               <p className="text-gray-600 dark:text-gray-400 text-sm sm:text-base">
                 {accountActive ? 'Generate premium AI voices for your content' : 'Your account has been deactivated. Please contact support.'}
@@ -393,7 +593,21 @@ const Dashboard: React.FC = () => {
                 </div>
               )}
             </div>
-            <div className="text-left sm:text-right">
+            <div className="text-left sm:text-right flex items-center space-x-2">
+              {/* Network Status Indicator */}
+              <div className={`flex items-center px-2 py-1 rounded-full text-xs ${
+                networkStatus === 'online' 
+                  ? 'bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300'
+                  : 'bg-red-100 text-red-700 dark:bg-red-900 dark:text-red-300'
+              }`}>
+                {networkStatus === 'online' ? (
+                  <Wifi className="h-3 w-3 mr-1" />
+                ) : (
+                  <WifiOff className="h-3 w-3 mr-1" />
+                )}
+                {networkStatus}
+              </div>
+              
               <div className={`px-3 sm:px-4 py-2 rounded-lg ${
                 !accountActive
                   ? 'bg-red-500 text-white'
@@ -414,6 +628,23 @@ const Dashboard: React.FC = () => {
             </div>
           </div>
         </div>
+
+        {/* Network Status Warning */}
+        {networkStatus === 'offline' && (
+          <div className="bg-red-50 dark:bg-red-900 border border-red-200 dark:border-red-700 rounded-xl p-4 sm:p-6 mb-6 sm:mb-8">
+            <div className="flex items-start space-x-3">
+              <WifiOff className="h-5 w-5 sm:h-6 sm:w-6 text-red-600 dark:text-red-400 flex-shrink-0 mt-0.5" />
+              <div className="flex-1">
+                <h3 className="text-base sm:text-lg font-semibold text-red-800 dark:text-red-200 mb-2">
+                  No Internet Connection
+                </h3>
+                <p className="text-sm sm:text-base text-red-700 dark:text-red-300">
+                  You're currently offline. Voice generation requires an internet connection. Please check your network and try again.
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Account Deactivated Warning */}
         {!accountActive && (
@@ -447,6 +678,7 @@ const Dashboard: React.FC = () => {
                 <Info className="h-4 w-4 sm:h-5 sm:w-5 text-yellow-600 dark:text-yellow-400 mr-2 flex-shrink-0" />
                 <p className="text-xs sm:text-sm text-yellow-700 dark:text-yellow-300">
                   Demo Mode: Add your ElevenLabs API key for real voice generation
+                  {isMobile && ' (Mobile detected)'}
                 </p>
               </div>
               <button
@@ -466,6 +698,11 @@ const Dashboard: React.FC = () => {
               <h2 className="text-lg sm:text-xl font-bold text-gray-900 dark:text-white mb-4 sm:mb-6 flex items-center">
                 <Mic className="h-5 w-5 sm:h-6 sm:w-6 mr-2 text-blue-600" />
                 Voice Generator
+                {isMobile && (
+                  <span className="ml-2 text-xs bg-blue-100 text-blue-700 px-2 py-1 rounded-full">
+                    Mobile
+                  </span>
+                )}
               </h2>
 
               {/* Enhanced Voice Selection */}
@@ -657,6 +894,11 @@ const Dashboard: React.FC = () => {
                         <span className="ml-2 text-green-600 dark:text-green-400">✓ Multilingual model will be used</span>
                       </div>
                     )}
+                    {isMobile && (
+                      <div className="mt-1">
+                        <strong>Device:</strong> Mobile • <strong>Network:</strong> {networkStatus} • <strong>API:</strong> {isApiConfigured ? 'Configured' : 'Demo Mode'}
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
@@ -664,13 +906,18 @@ const Dashboard: React.FC = () => {
               {/* Generate Button */}
               <button
                 onClick={generateVoice}
-                disabled={isGenerating || !text.trim() || !selectedVoice || remainingVoices === 0 || !accountActive}
+                disabled={isGenerating || !text.trim() || !selectedVoice || remainingVoices === 0 || !accountActive || networkStatus === 'offline'}
                 className="w-full bg-gradient-to-r from-blue-600 to-purple-600 text-white py-2 sm:py-3 px-4 sm:px-6 rounded-lg font-semibold hover:from-blue-700 hover:to-purple-700 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center text-sm sm:text-base"
               >
                 {!accountActive ? (
                   <>
                     <UserX className="h-4 w-4 sm:h-5 sm:w-5 mr-2" />
                     Account Deactivated
+                  </>
+                ) : networkStatus === 'offline' ? (
+                  <>
+                    <WifiOff className="h-4 w-4 sm:h-5 sm:w-5 mr-2" />
+                    No Internet Connection
                   </>
                 ) : isGenerating ? (
                   <>
@@ -705,6 +952,11 @@ const Dashboard: React.FC = () => {
                           {isUrduHindiText && (
                             <span className="ml-2 text-green-600 dark:text-green-400">
                               ({detectedLanguage === 'urdu' ? 'Urdu' : 'Hindi'})
+                            </span>
+                          )}
+                          {isMobile && (
+                            <span className="ml-2 text-blue-600 dark:text-blue-400">
+                              (Mobile)
                             </span>
                           )}
                         </p>
@@ -903,6 +1155,9 @@ const Dashboard: React.FC = () => {
           </div>
         </div>
 
+        {/* Mobile Debug Modal */}
+        {showMobileDebugModal && <MobileDebugModal />}
+
         {/* Account Deactivated Modal */}
         {showDeactivatedModal && (
           <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
@@ -1017,6 +1272,13 @@ const Dashboard: React.FC = () => {
                 <p className="text-yellow-600 dark:text-yellow-400">
                   Currently using demo mode with synthetic audio generation.
                 </p>
+                {isMobile && (
+                  <div className="mt-4 p-3 bg-blue-50 dark:bg-blue-900 rounded-lg border border-blue-200 dark:border-blue-700">
+                    <p className="text-blue-700 dark:text-blue-300 text-xs">
+                      <strong>Mobile Note:</strong> If you're experiencing API issues on mobile, check the debug info for environment variable loading.
+                    </p>
+                  </div>
+                )}
               </div>
               <button
                 onClick={() => setShowApiInfo(false)}
