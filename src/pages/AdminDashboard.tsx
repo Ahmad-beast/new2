@@ -17,9 +17,14 @@ import {
   Mic,
   Volume2,
   Calendar,
-  FileText
+  FileText,
+  MessageSquare,
+  Send,
+  Edit,
+  Trash2,
+  Plus
 } from 'lucide-react';
-import { collection, getDocs, doc, updateDoc, query, orderBy, where } from 'firebase/firestore';
+import { collection, getDocs, doc, updateDoc, query, orderBy, where, addDoc, deleteDoc } from 'firebase/firestore';
 import { db } from '../config/firebase';
 import toast from 'react-hot-toast';
 
@@ -70,19 +75,37 @@ interface VoiceGeneration {
   audioSize: number;
 }
 
+interface BroadcastMessage {
+  id: string;
+  title: string;
+  description: string;
+  active: boolean;
+  createdAt: Date;
+  updatedAt: Date;
+  createdBy: string;
+}
+
 const AdminDashboard: React.FC = () => {
   const [users, setUsers] = useState<User[]>([]);
   const [payments, setPayments] = useState<Payment[]>([]);
   const [voiceGenerations, setVoiceGenerations] = useState<VoiceGeneration[]>([]);
+  const [broadcastMessages, setBroadcastMessages] = useState<BroadcastMessage[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   const [filterStatus, setFilterStatus] = useState('all');
   const [selectedUser, setSelectedUser] = useState<User | null>(null);
   const [showUserModal, setShowUserModal] = useState(false);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<'users' | 'payments' | 'voices'>('users');
+  const [activeTab, setActiveTab] = useState<'users' | 'payments' | 'voices' | 'messages'>('users');
   const [voiceSearchTerm, setVoiceSearchTerm] = useState('');
   const [voiceFilterPlan, setVoiceFilterPlan] = useState('all');
+  
+  // Broadcast message form state
+  const [showMessageForm, setShowMessageForm] = useState(false);
+  const [messageTitle, setMessageTitle] = useState('');
+  const [messageDescription, setMessageDescription] = useState('');
+  const [editingMessage, setEditingMessage] = useState<BroadcastMessage | null>(null);
+  const [messageSubmitting, setMessageSubmitting] = useState(false);
 
   useEffect(() => {
     loadData();
@@ -91,7 +114,7 @@ const AdminDashboard: React.FC = () => {
   const loadData = async () => {
     try {
       setLoading(true);
-      await Promise.all([loadUsers(), loadPayments(), loadVoiceGenerations()]);
+      await Promise.all([loadUsers(), loadPayments(), loadVoiceGenerations(), loadBroadcastMessages()]);
     } catch (error) {
       console.error('Error loading admin data:', error);
       toast.error('Failed to load admin data');
@@ -192,6 +215,32 @@ const AdminDashboard: React.FC = () => {
     } catch (error) {
       console.error('Error loading voice generations:', error);
       toast.error('Failed to load voice generations');
+    }
+  };
+
+  const loadBroadcastMessages = async () => {
+    try {
+      const messagesQuery = query(collection(db, 'broadcastMessages'), orderBy('createdAt', 'desc'));
+      const messagesSnapshot = await getDocs(messagesQuery);
+      
+      const messagesData = messagesSnapshot.docs.map(doc => {
+        const data = doc.data();
+        return {
+          id: doc.id,
+          title: data.title,
+          description: data.description,
+          active: data.active,
+          createdAt: data.createdAt?.toDate() || new Date(),
+          updatedAt: data.updatedAt?.toDate() || new Date(),
+          createdBy: data.createdBy || 'admin'
+        } as BroadcastMessage;
+      });
+      
+      setBroadcastMessages(messagesData);
+      console.log(`Loaded ${messagesData.length} broadcast messages`);
+    } catch (error) {
+      console.error('Error loading broadcast messages:', error);
+      toast.error('Failed to load broadcast messages');
     }
   };
 
@@ -314,6 +363,141 @@ const AdminDashboard: React.FC = () => {
     }
   };
 
+  const handleBroadcastMessage = async (e: React.FormEvent) => {
+    e.preventDefault();
+    
+    if (!messageTitle.trim() || !messageDescription.trim()) {
+      toast.error('Please fill in both title and description');
+      return;
+    }
+
+    setMessageSubmitting(true);
+    const loadingToast = toast.loading(editingMessage ? 'Updating message...' : 'Creating broadcast message...');
+
+    try {
+      if (editingMessage) {
+        // Update existing message
+        const messageRef = doc(db, 'broadcastMessages', editingMessage.id);
+        await updateDoc(messageRef, {
+          title: messageTitle.trim(),
+          description: messageDescription.trim(),
+          updatedAt: new Date()
+        });
+
+        setBroadcastMessages(prev => 
+          prev.map(msg => 
+            msg.id === editingMessage.id 
+              ? { ...msg, title: messageTitle.trim(), description: messageDescription.trim(), updatedAt: new Date() }
+              : msg
+          )
+        );
+
+        toast.success('Broadcast message updated successfully!', { id: loadingToast });
+      } else {
+        // Deactivate all existing messages first
+        const activeMessages = broadcastMessages.filter(msg => msg.active);
+        for (const msg of activeMessages) {
+          const msgRef = doc(db, 'broadcastMessages', msg.id);
+          await updateDoc(msgRef, { active: false });
+        }
+
+        // Create new message
+        const newMessage = {
+          title: messageTitle.trim(),
+          description: messageDescription.trim(),
+          active: true,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+          createdBy: 'admin'
+        };
+
+        const docRef = await addDoc(collection(db, 'broadcastMessages'), newMessage);
+        
+        setBroadcastMessages(prev => [
+          { ...newMessage, id: docRef.id },
+          ...prev.map(msg => ({ ...msg, active: false }))
+        ]);
+
+        toast.success('Broadcast message sent to all users!', { id: loadingToast });
+      }
+
+      // Reset form
+      setMessageTitle('');
+      setMessageDescription('');
+      setShowMessageForm(false);
+      setEditingMessage(null);
+    } catch (error: any) {
+      console.error('Error handling broadcast message:', error);
+      toast.error('Failed to process broadcast message. Please try again.', { id: loadingToast });
+    } finally {
+      setMessageSubmitting(false);
+    }
+  };
+
+  const handleToggleMessageStatus = async (message: BroadcastMessage) => {
+    setActionLoading(message.id);
+    const loadingToast = toast.loading(message.active ? 'Deactivating message...' : 'Activating message...');
+
+    try {
+      if (!message.active) {
+        // Deactivate all other messages first
+        const activeMessages = broadcastMessages.filter(msg => msg.active && msg.id !== message.id);
+        for (const msg of activeMessages) {
+          const msgRef = doc(db, 'broadcastMessages', msg.id);
+          await updateDoc(msgRef, { active: false });
+        }
+      }
+
+      const messageRef = doc(db, 'broadcastMessages', message.id);
+      await updateDoc(messageRef, {
+        active: !message.active,
+        updatedAt: new Date()
+      });
+
+      setBroadcastMessages(prev => 
+        prev.map(msg => 
+          msg.id === message.id 
+            ? { ...msg, active: !msg.active, updatedAt: new Date() }
+            : !message.active ? { ...msg, active: false } : msg
+        )
+      );
+
+      toast.success(`Message ${!message.active ? 'activated' : 'deactivated'} successfully!`, { id: loadingToast });
+    } catch (error: any) {
+      console.error('Error toggling message status:', error);
+      toast.error('Failed to update message status. Please try again.', { id: loadingToast });
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  const handleDeleteMessage = async (message: BroadcastMessage) => {
+    if (!confirm('Are you sure you want to delete this message? This action cannot be undone.')) {
+      return;
+    }
+
+    setActionLoading(message.id);
+    const loadingToast = toast.loading('Deleting message...');
+
+    try {
+      await deleteDoc(doc(db, 'broadcastMessages', message.id));
+      setBroadcastMessages(prev => prev.filter(msg => msg.id !== message.id));
+      toast.success('Message deleted successfully!', { id: loadingToast });
+    } catch (error: any) {
+      console.error('Error deleting message:', error);
+      toast.error('Failed to delete message. Please try again.', { id: loadingToast });
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  const handleEditMessage = (message: BroadcastMessage) => {
+    setEditingMessage(message);
+    setMessageTitle(message.title);
+    setMessageDescription(message.description);
+    setShowMessageForm(true);
+  };
+
   const filteredUsers = users.filter(user => {
     const matchesSearch = user.email.toLowerCase().includes(searchTerm.toLowerCase()) ||
                          user.displayName.toLowerCase().includes(searchTerm.toLowerCase());
@@ -349,6 +533,7 @@ const AdminDashboard: React.FC = () => {
   const totalVoiceGenerations = voiceGenerations.length;
   const freeUserVoices = voiceGenerations.filter(v => v.accountStatus === 'free').length;
   const proUserVoices = voiceGenerations.filter(v => v.accountStatus === 'pro').length;
+  const activeBroadcastMessages = broadcastMessages.filter(msg => msg.active).length;
 
   if (loading) {
     return (
@@ -381,7 +566,7 @@ const AdminDashboard: React.FC = () => {
           </div>
           
           {/* Stats Cards */}
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-6 mb-8">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-6 gap-6 mb-8">
             <div className="bg-white dark:bg-gray-800 p-6 rounded-xl border border-gray-200 dark:border-gray-700">
               <div className="flex items-center justify-between">
                 <div>
@@ -429,6 +614,16 @@ const AdminDashboard: React.FC = () => {
                   <p className="text-2xl font-bold text-orange-600">{pendingPayments.length}</p>
                 </div>
                 <CreditCard className="h-8 w-8 text-orange-600" />
+              </div>
+            </div>
+            
+            <div className="bg-white dark:bg-gray-800 p-6 rounded-xl border border-gray-200 dark:border-gray-700">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm text-gray-600 dark:text-gray-400">Active Messages</p>
+                  <p className="text-2xl font-bold text-red-600">{activeBroadcastMessages}</p>
+                </div>
+                <MessageSquare className="h-8 w-8 text-red-600" />
               </div>
             </div>
           </div>
@@ -487,6 +682,19 @@ const AdminDashboard: React.FC = () => {
                 <div className="flex items-center space-x-2">
                   <Mic className="h-4 w-4" />
                   <span>Voice Generations ({totalVoiceGenerations})</span>
+                </div>
+              </button>
+              <button
+                onClick={() => setActiveTab('messages')}
+                className={`py-4 px-1 border-b-2 font-medium text-sm ${
+                  activeTab === 'messages'
+                    ? 'border-blue-500 text-blue-600 dark:text-blue-400'
+                    : 'border-transparent text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-300'
+                }`}
+              >
+                <div className="flex items-center space-x-2">
+                  <MessageSquare className="h-4 w-4" />
+                  <span>Broadcast Messages ({broadcastMessages.length})</span>
                 </div>
               </button>
             </nav>
@@ -878,6 +1086,148 @@ const AdminDashboard: React.FC = () => {
                 </div>
               </>
             )}
+
+            {activeTab === 'messages' && (
+              <>
+                {/* Broadcast Messages Header */}
+                <div className="flex justify-between items-center mb-6">
+                  <div>
+                    <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
+                      Broadcast Messages
+                    </h3>
+                    <p className="text-sm text-gray-600 dark:text-gray-400">
+                      Send popup messages to all users when they log in
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => {
+                      setShowMessageForm(true);
+                      setEditingMessage(null);
+                      setMessageTitle('');
+                      setMessageDescription('');
+                    }}
+                    className="flex items-center space-x-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+                  >
+                    <Plus className="h-4 w-4" />
+                    <span>New Message</span>
+                  </button>
+                </div>
+
+                {/* Active Message Alert */}
+                {activeBroadcastMessages > 0 && (
+                  <div className="bg-green-50 dark:bg-green-900 border border-green-200 dark:border-green-700 rounded-xl p-4 mb-6">
+                    <div className="flex items-center">
+                      <MessageSquare className="h-5 w-5 text-green-600 dark:text-green-400 mr-2" />
+                      <p className="text-green-700 dark:text-green-300 font-medium">
+                        {activeBroadcastMessages} active message{activeBroadcastMessages > 1 ? 's' : ''} will be shown to users
+                      </p>
+                    </div>
+                  </div>
+                )}
+
+                {/* Messages List */}
+                <div className="space-y-4">
+                  {broadcastMessages.map((message) => (
+                    <div
+                      key={message.id}
+                      className={`bg-white dark:bg-gray-800 rounded-xl border-2 p-6 ${
+                        message.active 
+                          ? 'border-green-200 dark:border-green-700 bg-green-50 dark:bg-green-900' 
+                          : 'border-gray-200 dark:border-gray-700'
+                      }`}
+                    >
+                      <div className="flex justify-between items-start mb-4">
+                        <div className="flex-1">
+                          <div className="flex items-center space-x-2 mb-2">
+                            <h4 className="text-lg font-semibold text-gray-900 dark:text-white">
+                              {message.title}
+                            </h4>
+                            <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${
+                              message.active
+                                ? 'bg-green-100 text-green-800 dark:bg-green-800 dark:text-green-200'
+                                : 'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-300'
+                            }`}>
+                              {message.active ? 'Active' : 'Inactive'}
+                            </span>
+                          </div>
+                          <p className="text-gray-600 dark:text-gray-300 mb-3">
+                            {message.description}
+                          </p>
+                          <div className="text-sm text-gray-500 dark:text-gray-400">
+                            Created: {message.createdAt.toLocaleDateString()} at {message.createdAt.toLocaleTimeString()}
+                            {message.updatedAt.getTime() !== message.createdAt.getTime() && (
+                              <span className="ml-4">
+                                Updated: {message.updatedAt.toLocaleDateString()} at {message.updatedAt.toLocaleTimeString()}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                        
+                        <div className="flex items-center space-x-2 ml-4">
+                          <button
+                            onClick={() => handleEditMessage(message)}
+                            className="text-blue-600 hover:text-blue-900 dark:text-blue-400 dark:hover:text-blue-300"
+                            title="Edit message"
+                          >
+                            <Edit className="h-4 w-4" />
+                          </button>
+                          <button
+                            onClick={() => handleToggleMessageStatus(message)}
+                            disabled={actionLoading === message.id}
+                            className={`${
+                              message.active
+                                ? 'text-red-600 hover:text-red-900 dark:text-red-400 dark:hover:text-red-300'
+                                : 'text-green-600 hover:text-green-900 dark:text-green-400 dark:hover:text-green-300'
+                            } disabled:opacity-50`}
+                            title={message.active ? 'Deactivate message' : 'Activate message'}
+                          >
+                            {actionLoading === message.id ? (
+                              <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-current"></div>
+                            ) : message.active ? (
+                              <XCircle className="h-4 w-4" />
+                            ) : (
+                              <CheckCircle className="h-4 w-4" />
+                            )}
+                          </button>
+                          <button
+                            onClick={() => handleDeleteMessage(message)}
+                            disabled={actionLoading === message.id}
+                            className="text-red-600 hover:text-red-900 dark:text-red-400 dark:hover:text-red-300 disabled:opacity-50"
+                            title="Delete message"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                  
+                  {broadcastMessages.length === 0 && (
+                    <div className="text-center py-12">
+                      <MessageSquare className="h-12 w-12 text-gray-400 mx-auto mb-4" />
+                      <h3 className="text-lg font-medium text-gray-900 dark:text-white mb-2">
+                        No broadcast messages yet
+                      </h3>
+                      <p className="text-gray-500 dark:text-gray-400 mb-4">
+                        Create your first message to communicate with all users
+                      </p>
+                      <button
+                        onClick={() => {
+                          setShowMessageForm(true);
+                          setEditingMessage(null);
+                          setMessageTitle('');
+                          setMessageDescription('');
+                        }}
+                        className="inline-flex items-center space-x-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+                      >
+                        <Plus className="h-4 w-4" />
+                        <span>Create Message</span>
+                      </button>
+                    </div>
+                  )}
+                </div>
+              </>
+            )}
           </div>
         </div>
 
@@ -986,6 +1336,122 @@ const AdminDashboard: React.FC = () => {
                     </button>
                   </div>
                 </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Broadcast Message Form Modal */}
+        {showMessageForm && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+            <div className="bg-white dark:bg-gray-800 rounded-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+              <div className="p-6">
+                <div className="flex justify-between items-center mb-6">
+                  <h3 className="text-xl font-bold text-gray-900 dark:text-white">
+                    {editingMessage ? 'Edit Broadcast Message' : 'Create Broadcast Message'}
+                  </h3>
+                  <button
+                    onClick={() => {
+                      setShowMessageForm(false);
+                      setEditingMessage(null);
+                      setMessageTitle('');
+                      setMessageDescription('');
+                    }}
+                    className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
+                  >
+                    <XCircle className="h-6 w-6" />
+                  </button>
+                </div>
+
+                <form onSubmit={handleBroadcastMessage} className="space-y-6">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                      Message Title *
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      value={messageTitle}
+                      onChange={(e) => setMessageTitle(e.target.value)}
+                      className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg dark:bg-gray-700 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      placeholder="Enter message title"
+                      maxLength={100}
+                    />
+                    <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                      {messageTitle.length}/100 characters
+                    </p>
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                      Message Description *
+                    </label>
+                    <textarea
+                      required
+                      value={messageDescription}
+                      onChange={(e) => setMessageDescription(e.target.value)}
+                      rows={4}
+                      className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg dark:bg-gray-700 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      placeholder="Enter message description"
+                      maxLength={500}
+                    />
+                    <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                      {messageDescription.length}/500 characters
+                    </p>
+                  </div>
+
+                  {!editingMessage && (
+                    <div className="p-4 bg-blue-50 dark:bg-blue-900 rounded-lg border border-blue-200 dark:border-blue-700">
+                      <div className="flex items-start space-x-2">
+                        <MessageSquare className="h-5 w-5 text-blue-600 dark:text-blue-400 mt-0.5" />
+                        <div>
+                          <p className="text-sm font-medium text-blue-700 dark:text-blue-300">
+                            Important Notes:
+                          </p>
+                          <ul className="text-xs text-blue-600 dark:text-blue-400 mt-1 space-y-1">
+                            <li>• This message will be shown to all users when they log in</li>
+                            <li>• Only one message can be active at a time</li>
+                            <li>• Creating this message will deactivate any existing active messages</li>
+                            <li>• Users can dismiss the popup by clicking the close button</li>
+                          </ul>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="flex space-x-3 pt-4">
+                    <button
+                      type="submit"
+                      disabled={messageSubmitting || !messageTitle.trim() || !messageDescription.trim()}
+                      className="flex-1 bg-gradient-to-r from-blue-600 to-purple-600 text-white py-3 px-4 rounded-lg hover:from-blue-700 hover:to-purple-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center font-semibold"
+                    >
+                      {messageSubmitting ? (
+                        <>
+                          <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+                          {editingMessage ? 'Updating...' : 'Creating...'}
+                        </>
+                      ) : (
+                        <>
+                          <Send className="h-4 w-4 mr-2" />
+                          {editingMessage ? 'Update Message' : 'Send to All Users'}
+                        </>
+                      )}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowMessageForm(false);
+                        setEditingMessage(null);
+                        setMessageTitle('');
+                        setMessageDescription('');
+                      }}
+                      disabled={messageSubmitting}
+                      className="px-6 py-3 bg-gray-300 dark:bg-gray-600 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-400 dark:hover:bg-gray-500 transition-colors disabled:opacity-50 font-semibold"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </form>
               </div>
             </div>
           </div>
