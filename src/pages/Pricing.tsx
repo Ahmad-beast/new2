@@ -14,7 +14,7 @@ const Pricing: React.FC = () => {
   const [copied, setCopied] = useState(false);
   const [billingCycle, setBillingCycle] = useState<'monthly' | 'yearly'>('monthly');
 
-  // Base monthly plans with correct yearly calculation
+  // Base monthly plans with correct yearly calculation - Updated Free plan from 5 to 2 voices
   const basePlans = [
     {
       id: 'free',
@@ -24,7 +24,7 @@ const Pricing: React.FC = () => {
       duration: 'Forever',
       description: 'Perfect for trying out our AI voice technology',
       features: [
-        '5 voice generations',
+        '2 voice generations', // Updated from 5 to 2
         'Basic voice models',
         'Standard quality audio',
         'Community support',
