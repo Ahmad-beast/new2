@@ -50,13 +50,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
 
-  // Plan limits mapping
+  // Plan limits mapping - Updated Free plan from 5 to 2 voices
   const getPlanLimits = (plan: string, amount?: number) => {
     if (amount === 99 || plan === '1 Day') return 10;
     if (amount === 200 || plan === '7 Days') return 20;
     if (amount === 350 || plan === '15 Days') return 29;
     if (amount === 499 || plan === '30 Days') return -1; // Unlimited
-    return 5; // Free plan default
+    return 2; // Free plan updated from 5 to 2
   };
 
   const getPlanDuration = (plan: string, amount?: number) => {
@@ -95,7 +95,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             // Check plan expiry on load
             await checkPlanExpiryForProfile(profile);
           } else {
-            // Create new user profile with proper defaults
+            // Create new user profile with proper defaults - Updated voiceGenerationsLimit to 2
             const newProfile: UserProfile = {
               uid: user.uid,
               email: user.email || '',
@@ -103,7 +103,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
               subscriptionPlan: 'free',
               subscriptionExpiry: null,
               voiceGenerationsUsed: 0,
-              voiceGenerationsLimit: 5,
+              voiceGenerationsLimit: 2, // Updated from 5 to 2
               isActive: true,
               createdAt: new Date(),
               accountStatus: 'free',
@@ -122,7 +122,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           }
         } catch (error) {
           console.error('Error fetching user profile:', error);
-          // Create a minimal profile if Firestore fails
+          // Create a minimal profile if Firestore fails - Updated voiceGenerationsLimit to 2
           const fallbackProfile: UserProfile = {
             uid: user.uid,
             email: user.email || '',
@@ -130,7 +130,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             subscriptionPlan: 'free',
             subscriptionExpiry: null,
             voiceGenerationsUsed: 0,
-            voiceGenerationsLimit: 5,
+            voiceGenerationsLimit: 2, // Updated from 5 to 2
             isActive: true,
             createdAt: new Date(),
             accountStatus: 'free',
@@ -153,14 +153,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     if (profile.accountStatus === 'pro' && profile.planExpiry) {
       const now = new Date();
       if (now > profile.planExpiry) {
-        // Plan expired, revert to free
+        // Plan expired, revert to free - Updated voiceGenerationsLimit to 2
         const updatedProfile = {
           ...profile,
           accountStatus: 'free' as const,
           plan: null,
           planAmount: null,
           voicesGenerated: 0,
-          voiceGenerationsLimit: 5,
+          voiceGenerationsLimit: 2, // Updated from 5 to 2
           subscriptionPlan: 'free' as const
         };
         
@@ -272,8 +272,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         return false; // Limit reached
       }
     } else {
-      // Free plan - check free limit
-      if (currentVoices >= 5) {
+      // Free plan - check free limit (updated to 2)
+      if (currentVoices >= 2) {
         return false; // Free limit reached
       }
     }
@@ -298,7 +298,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       if (limit === -1) return 999999; // Unlimited
       return Math.max(0, limit - currentVoices);
     } else {
-      return Math.max(0, 5 - currentVoices);
+      return Math.max(0, 2 - currentVoices); // Updated from 5 to 2
     }
   };
 
@@ -309,7 +309,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const limit = getPlanLimits(userProfile.plan || '', userProfile.planAmount);
       return limit === -1 ? 999999 : limit;
     } else {
-      return 5;
+      return 2; // Updated from 5 to 2
     }
   };
 
