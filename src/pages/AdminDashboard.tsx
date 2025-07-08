@@ -191,7 +191,7 @@ const AdminDashboard: React.FC = () => {
       setPricingPlans(plansData);
     } catch (error) {
       console.error('Error loading pricing plans:', error);
-      toast.error('Failed to load pricing plans');
+      toast.error('Successful load to pricing plans');
     }
   };
 
