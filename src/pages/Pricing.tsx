@@ -2,9 +2,30 @@ import React, { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { Check, Star, Zap, Crown, CreditCard, Smartphone, Copy, CheckCircle, ArrowRight, Sparkles, Users, TrendingUp, Shield, Clock, Gift, Calendar } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
-import { collection, addDoc } from 'firebase/firestore';
+import { collection, addDoc, getDocs, query, where, orderBy } from 'firebase/firestore';
 import { db } from '../config/firebase';
 import toast from 'react-hot-toast';
+
+interface PricingPlan {
+  id: string;
+  name: string;
+  basePrice: number;
+  currentPrice: number;
+  duration: string;
+  features: string[];
+  voiceLimit: number;
+  isActive: boolean;
+  discountType?: 'percentage' | 'fixed' | null;
+  discountValue?: number;
+  discountExpiry?: Date | null;
+  discountDescription?: string;
+  popular?: boolean;
+  badge?: string;
+  icon?: string;
+  gradient?: string;
+  createdAt: Date;
+  updatedAt: Date;
+}
 
 const Pricing: React.FC = () => {
   const { user } = useAuth();
@@ -13,6 +34,56 @@ const Pricing: React.FC = () => {
   const [selectedPlan, setSelectedPlan] = useState<any>(null);
   const [copied, setCopied] = useState(false);
   const [billingCycle, setBillingCycle] = useState<'monthly' | 'yearly'>('monthly');
+  const [dynamicPlans, setDynamicPlans] = useState<PricingPlan[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  // Load dynamic pricing plans from Firestore
+  React.useEffect(() => {
+    loadPricingPlans();
+  }, []);
+
+  const loadPricingPlans = async () => {
+    try {
+      setLoading(true);
+      const plansQuery = query(
+        collection(db, 'pricingPlans'),
+        where('isActive', '==', true),
+        orderBy('basePrice', 'asc')
+      );
+      const plansSnapshot = await getDocs(plansQuery);
+      const plansData = plansSnapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data(),
+        createdAt: doc.data().createdAt?.toDate() || new Date(),
+        updatedAt: doc.data().updatedAt?.toDate() || new Date(),
+        discountExpiry: doc.data().discountExpiry?.toDate() || null
+      })) as PricingPlan[];
+      
+      // Filter out expired discounts
+      const now = new Date();
+      const validPlans = plansData.map(plan => {
+        if (plan.discountExpiry && now > plan.discountExpiry) {
+          // Discount expired, revert to base price
+          return {
+            ...plan,
+            currentPrice: plan.basePrice,
+            discountType: null,
+            discountValue: 0,
+            discountExpiry: null,
+            discountDescription: ''
+          };
+        }
+        return plan;
+      });
+      
+      setDynamicPlans(validPlans);
+    } catch (error) {
+      console.error('Error loading pricing plans:', error);
+      toast.error('Failed to load pricing plans');
+    } finally {
+      setLoading(false);
+    }
+  };
 
   // Base monthly plans with correct yearly calculation - Updated Free plan from 5 to 2 voices
   const basePlans = [
@@ -136,7 +207,7 @@ const Pricing: React.FC = () => {
   ];
 
   // Calculate current plans based on billing cycle
-  const plans = basePlans.map(plan => {
+  const staticPlans = basePlans.map(plan => {
     const currentPrice = billingCycle === 'monthly' 
       ? plan.monthlyPrice 
       : plan.yearlyDiscountedPrice || plan.yearlyPrice;
@@ -158,6 +229,40 @@ const Pricing: React.FC = () => {
       savings: savings
     };
   });
+
+  // Combine static and dynamic plans, prioritizing dynamic plans
+  const allPlans = dynamicPlans.length > 0 ? 
+    dynamicPlans.map(plan => ({
+      id: plan.id,
+      name: plan.name,
+      price: plan.currentPrice === 0 ? 'Free' : `Rs. ${plan.currentPrice}`,
+      originalPrice: plan.basePrice !== plan.currentPrice ? `Rs. ${plan.basePrice}` : null,
+      actualAmount: plan.currentPrice,
+      duration: plan.duration,
+      description: `${plan.voiceLimit === 999999 ? 'Unlimited' : plan.voiceLimit} voice generations`,
+      features: plan.features,
+      icon: getIconComponent(plan.icon || 'Zap'),
+      gradient: plan.gradient || 'from-blue-500 to-cyan-500',
+      borderColor: plan.popular ? 'border-purple-200 dark:border-purple-600 ring-2 ring-purple-500' : 'border-gray-200 dark:border-gray-600',
+      buttonStyle: `bg-gradient-to-r ${plan.gradient || 'from-blue-500 to-cyan-500'} hover:opacity-90`,
+      popular: plan.popular || false,
+      badge: plan.badge || (plan.discountType ? `${plan.discountType === 'percentage' ? plan.discountValue + '% OFF' : 'Rs. ' + plan.discountValue + ' OFF'}` : null),
+      billingCycle: 'monthly',
+      savings: plan.basePrice - plan.currentPrice,
+      discountExpiry: plan.discountExpiry
+    })) : 
+    staticPlans;
+
+  // Helper function to get icon component
+  const getIconComponent = (iconName: string) => {
+    switch (iconName) {
+      case 'Crown': return <Crown className="h-6 w-6" />;
+      case 'Star': return <Star className="h-6 w-6" />;
+      case 'Gift': return <Gift className="h-6 w-6" />;
+      case 'Users': return <Users className="h-6 w-6" />;
+      default: return <Zap className="h-6 w-6" />;
+    }
+  };
 
   const handlePlanSelect = (plan: any) => {
     if (plan.id === 'free') {
@@ -379,6 +484,17 @@ const Pricing: React.FC = () => {
     );
   };
 
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-purple-50 dark:from-gray-900 dark:via-gray-800 dark:to-gray-900 flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
+          <p className="text-gray-600 dark:text-gray-400">Loading pricing plans...</p>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-purple-50 dark:from-gray-900 dark:via-gray-800 dark:to-gray-900">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12 sm:py-16">
@@ -402,60 +518,62 @@ const Pricing: React.FC = () => {
         </div>
 
         {/* Enhanced Billing Toggle - Moved to separate container with proper spacing */}
-        <div className="flex justify-center mb-16">
-          <div className="bg-white dark:bg-gray-800 rounded-2xl p-6 shadow-lg border border-gray-200 dark:border-gray-700">
-            <div className="text-center mb-4">
-              <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">
-                Choose Your Billing Cycle
-              </h3>
-              <p className="text-sm text-gray-600 dark:text-gray-400">
-                Save up to 20% with yearly billing
-              </p>
-            </div>
-            
-            <div className="inline-flex items-center p-1 bg-gray-100 dark:bg-gray-700 rounded-xl shadow-inner">
-              <button
-                onClick={() => setBillingCycle('monthly')}
-                className={`px-6 py-3 rounded-lg text-sm font-semibold transition-all duration-200 ${
-                  billingCycle === 'monthly'
-                    ? 'bg-white dark:bg-gray-600 text-gray-900 dark:text-white shadow-md transform scale-105'
-                    : 'text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200'
-                }`}
-              >
-                <Calendar className="h-4 w-4 inline mr-2" />
-                Monthly
-              </button>
-              <button
-                onClick={() => setBillingCycle('yearly')}
-                className={`px-6 py-3 rounded-lg text-sm font-semibold transition-all duration-200 relative ${
-                  billingCycle === 'yearly'
-                    ? 'bg-white dark:bg-gray-600 text-gray-900 dark:text-white shadow-md transform scale-105'
-                    : 'text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200'
-                }`}
-              >
-                <Calendar className="h-4 w-4 inline mr-2" />
-                Yearly
-                <span className="ml-2 text-xs bg-gradient-to-r from-green-500 to-emerald-500 text-white px-2 py-1 rounded-full font-bold">
-                  Save 20%
-                </span>
-              </button>
-            </div>
-
-            {/* Savings Indicator */}
-            {billingCycle === 'yearly' && (
-              <div className="mt-4 inline-flex items-center px-4 py-2 bg-green-50 dark:bg-green-900 rounded-full border border-green-200 dark:border-green-700">
-                <TrendingUp className="h-4 w-4 text-green-600 dark:text-green-400 mr-2" />
-                <span className="text-sm font-medium text-green-700 dark:text-green-300">
-                  🎉 You're saving up to Rs. 1,198 per plan with yearly billing!
-                </span>
+        {dynamicPlans.length === 0 && (
+          <div className="flex justify-center mb-16">
+            <div className="bg-white dark:bg-gray-800 rounded-2xl p-6 shadow-lg border border-gray-200 dark:border-gray-700">
+              <div className="text-center mb-4">
+                <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">
+                  Choose Your Billing Cycle
+                </h3>
+                <p className="text-sm text-gray-600 dark:text-gray-400">
+                  Save up to 20% with yearly billing
+                </p>
               </div>
-            )}
+              
+              <div className="inline-flex items-center p-1 bg-gray-100 dark:bg-gray-700 rounded-xl shadow-inner">
+                <button
+                  onClick={() => setBillingCycle('monthly')}
+                  className={`px-6 py-3 rounded-lg text-sm font-semibold transition-all duration-200 ${
+                    billingCycle === 'monthly'
+                      ? 'bg-white dark:bg-gray-600 text-gray-900 dark:text-white shadow-md transform scale-105'
+                      : 'text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200'
+                  }`}
+                >
+                  <Calendar className="h-4 w-4 inline mr-2" />
+                  Monthly
+                </button>
+                <button
+                  onClick={() => setBillingCycle('yearly')}
+                  className={`px-6 py-3 rounded-lg text-sm font-semibold transition-all duration-200 relative ${
+                    billingCycle === 'yearly'
+                      ? 'bg-white dark:bg-gray-600 text-gray-900 dark:text-white shadow-md transform scale-105'
+                      : 'text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200'
+                  }`}
+                >
+                  <Calendar className="h-4 w-4 inline mr-2" />
+                  Yearly
+                  <span className="ml-2 text-xs bg-gradient-to-r from-green-500 to-emerald-500 text-white px-2 py-1 rounded-full font-bold">
+                    Save 20%
+                  </span>
+                </button>
+              </div>
+
+              {/* Savings Indicator */}
+              {billingCycle === 'yearly' && (
+                <div className="mt-4 inline-flex items-center px-4 py-2 bg-green-50 dark:bg-green-900 rounded-full border border-green-200 dark:border-green-700">
+                  <TrendingUp className="h-4 w-4 text-green-600 dark:text-green-400 mr-2" />
+                  <span className="text-sm font-medium text-green-700 dark:text-green-300">
+                    🎉 You're saving up to Rs. 1,198 per plan with yearly billing!
+                  </span>
+                </div>
+              )}
+            </div>
           </div>
-        </div>
+        )}
 
         {/* Pricing Cards - Fixed spacing and layout with proper badge positioning */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-6 lg:gap-8 mb-16">
-          {plans.map((plan, index) => (
+          {allPlans.map((plan, index) => (
             <div
               key={`${plan.id}-${billingCycle}`}
               className={`relative bg-white dark:bg-gray-800 rounded-2xl border-2 ${plan.borderColor} p-6 lg:p-8 hover:shadow-2xl transition-all duration-300 ${
@@ -528,7 +646,16 @@ const Pricing: React.FC = () => {
                     </div>
                   )}
                 </div>
-
+                
+                {/* Discount Expiry Notice */}
+                {plan.discountExpiry && (
+                  <div className="text-center mb-4">
+                    <p className="text-xs text-orange-600 dark:text-orange-400 font-medium">
+                      ⏰ Offer expires: {plan.discountExpiry.toLocaleDateString()}
+                    </p>
+                  </div>
+                )}
+                
                 {/* Features */}
                 <ul className="space-y-3 mb-8 text-left">
                   {plan.features.map((feature, featureIndex) => (
@@ -553,14 +680,14 @@ const Pricing: React.FC = () => {
         </div>
 
         {/* Billing Comparison */}
-        {billingCycle === 'yearly' && (
+        {billingCycle === 'yearly' && dynamicPlans.length === 0 && (
           <div className="bg-gradient-to-r from-green-50 to-emerald-50 dark:from-green-900 dark:to-emerald-900 rounded-2xl p-8 border border-green-200 dark:border-green-700 mb-16">
             <div className="text-center">
               <h3 className="text-2xl font-bold text-gray-900 dark:text-white mb-6">
                 🎉 Yearly Savings Breakdown
               </h3>
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-                {plans.slice(1).map((plan, index) => (
+                {staticPlans.slice(1).map((plan, index) => (
                   <div key={index} className="bg-white dark:bg-gray-800 rounded-xl p-6 shadow-sm">
                     <h4 className="font-semibold text-gray-900 dark:text-white mb-4 text-lg">{plan.name}</h4>
                     <div className="space-y-2 text-sm text-gray-600 dark:text-gray-400">
