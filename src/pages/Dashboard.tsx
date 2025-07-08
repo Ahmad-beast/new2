@@ -228,8 +228,16 @@ const Dashboard: React.FC = () => {
           textPreview: text.substring(0, 100),
           generatedAt: new Date(),
           isApiGenerated: elevenLabsApi.isConfigured(),
-          audioSize: audioBlob.size
+          audioSize: audioBlob.size,
+          timestamp: Date.now(),
+          deviceInfo: {
+            userAgent: navigator.userAgent,
+            isMobile: /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent),
+            platform: navigator.platform,
+            language: navigator.language
+          }
         });
+        console.log('✅ Voice generation logged to Firestore');
       } catch (logError) {
         console.error('Error logging voice generation:', logError);
         // Don't show error to user as the voice was generated successfully

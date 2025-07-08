@@ -4,38 +4,47 @@ import {
   CreditCard, 
   TrendingUp, 
   Settings, 
-  Search, 
+  Search,
   Filter,
+  Download,
+  Eye,
   CheckCircle,
   XCircle,
   Clock,
+  AlertTriangle,
   DollarSign,
-  Eye,
+  Calendar,
+  BarChart3,
+  UserCheck,
+  UserX,
+  Crown,
+  Gift,
+  Plus,
   Edit,
   Trash2,
-  Plus,
   Save,
   X,
-  Calendar,
-  Percent,
-  Tag,
-  Zap,
-  Crown,
-  Star,
-  Gift,
-  Palette,
-  Target,
+  Megaphone,
   MessageSquare,
-  Send,
-  AlertTriangle,
-  RefreshCw
+  Bell
 } from 'lucide-react';
-import { collection, getDocs, doc, updateDoc, addDoc, deleteDoc, query, orderBy, where, Timestamp } from 'firebase/firestore';
+import { 
+  collection, 
+  getDocs, 
+  doc, 
+  updateDoc, 
+  addDoc, 
+  deleteDoc,
+  query, 
+  orderBy, 
+  where,
+  Timestamp 
+} from 'firebase/firestore';
 import { db } from '../config/firebase';
 import toast from 'react-hot-toast';
 
 interface User {
-  id: string;
+  uid: string;
   email: string;
   displayName: string;
   accountStatus: 'free' | 'pro';
@@ -43,6 +52,8 @@ interface User {
   planAmount?: number;
   voicesGenerated: number;
   createdAt: Date;
+  upgradedAt?: Date;
+  planExpiry?: Date;
   status: 'active' | 'inactive';
   isActive: boolean;
 }
@@ -52,16 +63,20 @@ interface Payment {
   uid: string;
   userEmail: string;
   plan: string;
+  planDuration: string;
   amount: number;
   tid: string;
   status: 'pending' | 'approved' | 'rejected';
   createdAt: Date;
-  billingCycle?: string;
-  planDuration?: string;
+  processedAt?: Date;
+  processedBy?: string;
+  billingCycle?: 'monthly' | 'yearly';
+  originalAmount?: number;
+  savings?: number;
 }
 
 interface PricingPlan {
-  id?: string;
+  id: string;
   name: string;
   basePrice: number;
   currentPrice: number;
@@ -77,71 +92,50 @@ interface PricingPlan {
   badge?: string;
   icon?: string;
   gradient?: string;
-  createdAt?: Date;
-  updatedAt?: Date;
+  createdAt: Date;
+  updatedAt: Date;
 }
 
 interface BroadcastMessage {
-  id?: string;
+  id: string;
   title: string;
   description: string;
   active: boolean;
-  createdAt?: Date;
-  updatedAt?: Date;
-  createdBy?: string;
+  createdAt: Date;
+  updatedAt: Date;
+  createdBy: string;
 }
 
 const AdminDashboard: React.FC = () => {
-  const [activeTab, setActiveTab] = useState('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'users' | 'payments' | 'pricing' | 'broadcast'>('overview');
   const [users, setUsers] = useState<User[]>([]);
   const [payments, setPayments] = useState<Payment[]>([]);
   const [pricingPlans, setPricingPlans] = useState<PricingPlan[]>([]);
+  const [broadcastMessages, setBroadcastMessages] = useState<BroadcastMessage[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
-  const [statusFilter, setStatusFilter] = useState('all');
-  const [showEditModal, setShowEditModal] = useState(false);
+  const [filterStatus, setFilterStatus] = useState<'all' | 'pending' | 'approved' | 'rejected'>('all');
+  const [showPricingModal, setShowPricingModal] = useState(false);
   const [editingPlan, setEditingPlan] = useState<PricingPlan | null>(null);
-  const [broadcastMessage, setBroadcastMessage] = useState<BroadcastMessage>({
-    title: '',
-    description: '',
-    active: false
-  });
-
-  // Form state for pricing plan
-  const [planForm, setPlanForm] = useState<PricingPlan>({
-    name: '',
-    basePrice: 0,
-    currentPrice: 0,
-    duration: '',
-    features: [''],
-    voiceLimit: 0,
-    isActive: true,
-    discountType: null,
-    discountValue: 0,
-    discountExpiry: null,
-    discountDescription: '',
-    popular: false,
-    badge: '',
-    icon: 'Zap',
-    gradient: 'from-blue-500 to-cyan-500'
-  });
+  const [showBroadcastModal, setShowBroadcastModal] = useState(false);
+  const [editingBroadcast, setEditingBroadcast] = useState<BroadcastMessage | null>(null);
 
   useEffect(() => {
     loadData();
   }, []);
 
   const loadData = async () => {
+    setLoading(true);
     try {
-      setLoading(true);
       await Promise.all([
         loadUsers(),
         loadPayments(),
         loadPricingPlans(),
-        loadBroadcastMessage()
+        loadBroadcastMessages()
       ]);
     } catch (error) {
-      console.error('Error loading data:', error);
-      toast.error('Failed to load dashboard data');
+      console.error('Error loading admin data:', error);
+      toast.error('Failed to load admin data');
     } finally {
       setLoading(false);
     }
@@ -151,9 +145,13 @@ const AdminDashboard: React.FC = () => {
     try {
       const usersSnapshot = await getDocs(collection(db, 'users'));
       const usersData = usersSnapshot.docs.map(doc => ({
-        id: doc.id,
+        uid: doc.id,
         ...doc.data(),
-        createdAt: doc.data().createdAt?.toDate() || new Date()
+        createdAt: doc.data().createdAt?.toDate() || new Date(),
+        upgradedAt: doc.data().upgradedAt?.toDate() || null,
+        planExpiry: doc.data().planExpiry?.toDate() || null,
+        status: doc.data().status || 'active',
+        isActive: doc.data().isActive !== false
       })) as User[];
       setUsers(usersData);
     } catch (error) {
@@ -169,7 +167,8 @@ const AdminDashboard: React.FC = () => {
       const paymentsData = paymentsSnapshot.docs.map(doc => ({
         id: doc.id,
         ...doc.data(),
-        createdAt: doc.data().createdAt?.toDate() || new Date()
+        createdAt: doc.data().createdAt?.toDate() || new Date(),
+        processedAt: doc.data().processedAt?.toDate() || null
       })) as Payment[];
       setPayments(paymentsData);
     } catch (error) {
@@ -196,180 +195,121 @@ const AdminDashboard: React.FC = () => {
     }
   };
 
-  const loadBroadcastMessage = async () => {
+  const loadBroadcastMessages = async () => {
     try {
-      const messagesQuery = query(
-        collection(db, 'broadcastMessages'),
-        where('active', '==', true),
-        orderBy('createdAt', 'desc')
-      );
+      const messagesQuery = query(collection(db, 'broadcastMessages'), orderBy('createdAt', 'desc'));
       const messagesSnapshot = await getDocs(messagesQuery);
-      
-      if (!messagesSnapshot.empty) {
-        const messageDoc = messagesSnapshot.docs[0];
-        const messageData = messageDoc.data();
-        setBroadcastMessage({
-          id: messageDoc.id,
-          title: messageData.title || '',
-          description: messageData.description || '',
-          active: messageData.active || false,
-          createdAt: messageData.createdAt?.toDate() || new Date(),
-          updatedAt: messageData.updatedAt?.toDate() || new Date(),
-          createdBy: messageData.createdBy || 'admin'
+      const messagesData = messagesSnapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data(),
+        createdAt: doc.data().createdAt?.toDate() || new Date(),
+        updatedAt: doc.data().updatedAt?.toDate() || new Date()
+      })) as BroadcastMessage[];
+      setBroadcastMessages(messagesData);
+    } catch (error) {
+      console.error('Error loading broadcast messages:', error);
+      toast.error('Failed to load broadcast messages');
+    }
+  };
+
+  const handlePaymentAction = async (paymentId: string, action: 'approve' | 'reject') => {
+    try {
+      const payment = payments.find(p => p.id === paymentId);
+      if (!payment) return;
+
+      // Update payment status
+      await updateDoc(doc(db, 'payments', paymentId), {
+        status: action === 'approve' ? 'approved' : 'rejected',
+        processedAt: new Date(),
+        processedBy: 'admin'
+      });
+
+      if (action === 'approve') {
+        // Update user's plan
+        const planDuration = getPlanDuration(payment.plan, payment.amount);
+        const planExpiry = new Date();
+        planExpiry.setDate(planExpiry.getDate() + planDuration);
+        
+        const voiceLimit = getPlanLimits(payment.plan, payment.amount);
+
+        await updateDoc(doc(db, 'users', payment.uid), {
+          accountStatus: 'pro',
+          plan: payment.plan,
+          planAmount: payment.amount,
+          planExpiry: planExpiry,
+          upgradedAt: new Date(),
+          voicesGenerated: 0,
+          voiceGenerationsLimit: voiceLimit === -1 ? 999999 : voiceLimit,
+          subscriptionPlan: 'paid'
         });
       }
+
+      toast.success(`Payment ${action}d successfully!`);
+      await loadPayments();
+      await loadUsers();
     } catch (error) {
-      console.error('Error loading broadcast message:', error);
+      console.error(`Error ${action}ing payment:`, error);
+      toast.error(`Failed to ${action} payment`);
     }
   };
 
   const handleUserStatusToggle = async (userId: string, currentStatus: string) => {
     try {
       const newStatus = currentStatus === 'active' ? 'inactive' : 'active';
-      const userRef = doc(db, 'users', userId);
-      await updateDoc(userRef, { 
+      await updateDoc(doc(db, 'users', userId), {
         status: newStatus,
         isActive: newStatus === 'active'
       });
-      
-      setUsers(users.map(user => 
-        user.id === userId 
-          ? { ...user, status: newStatus as 'active' | 'inactive', isActive: newStatus === 'active' }
-          : user
-      ));
-      
-      toast.success(`User ${newStatus === 'active' ? 'activated' : 'deactivated'} successfully`);
+
+      toast.success(`User ${newStatus === 'active' ? 'activated' : 'deactivated'} successfully!`);
+      await loadUsers();
     } catch (error) {
       console.error('Error updating user status:', error);
       toast.error('Failed to update user status');
     }
   };
 
-  const handlePaymentStatusUpdate = async (paymentId: string, newStatus: 'approved' | 'rejected') => {
+  const getPlanDuration = (plan: string, amount?: number) => {
+    if (amount === 99 || plan === '1 Day') return 1;
+    if (amount === 200 || plan === '7 Days') return 7;
+    if (amount === 350 || plan === '15 Days') return 15;
+    if (amount === 499 || plan === '30 Days') return 30;
+    return 0;
+  };
+
+  const getPlanLimits = (plan: string, amount?: number) => {
+    if (amount === 99 || plan === '1 Day') return 10;
+    if (amount === 200 || plan === '7 Days') return 20;
+    if (amount === 350 || plan === '15 Days') return 29;
+    if (amount === 499 || plan === '30 Days') return -1; // Unlimited
+    return 2; // Free plan
+  };
+
+  const handleSavePricingPlan = async (planData: Partial<PricingPlan>) => {
     try {
-      const paymentRef = doc(db, 'payments', paymentId);
-      await updateDoc(paymentRef, { status: newStatus });
+      const now = new Date();
       
-      if (newStatus === 'approved') {
-        const payment = payments.find(p => p.id === paymentId);
-        if (payment) {
-          const userRef = doc(db, 'users', payment.uid);
-          const planExpiry = new Date();
-          
-          // Set plan duration based on amount
-          if (payment.amount === 99) planExpiry.setDate(planExpiry.getDate() + 1);
-          else if (payment.amount === 200) planExpiry.setDate(planExpiry.getDate() + 7);
-          else if (payment.amount === 350) planExpiry.setDate(planExpiry.getDate() + 15);
-          else if (payment.amount === 499) planExpiry.setDate(planExpiry.getDate() + 30);
-          
-          await updateDoc(userRef, {
-            accountStatus: 'pro',
-            plan: payment.plan,
-            planAmount: payment.amount,
-            planExpiry: Timestamp.fromDate(planExpiry),
-            upgradedAt: Timestamp.fromDate(new Date()),
-            voicesGenerated: 0
-          });
-        }
-      }
-      
-      setPayments(payments.map(payment => 
-        payment.id === paymentId ? { ...payment, status: newStatus } : payment
-      ));
-      
-      toast.success(`Payment ${newStatus} successfully`);
-    } catch (error) {
-      console.error('Error updating payment status:', error);
-      toast.error('Failed to update payment status');
-    }
-  };
-
-  // Pricing Plan Management Functions
-  const calculateCurrentPrice = (basePrice: number, discountType: string | null, discountValue: number) => {
-    if (!discountType || !discountValue) return basePrice;
-    
-    if (discountType === 'percentage') {
-      return Math.round(basePrice * (1 - discountValue / 100));
-    } else if (discountType === 'fixed') {
-      return Math.max(0, basePrice - discountValue);
-    }
-    
-    return basePrice;
-  };
-
-  const handlePlanFormChange = (field: keyof PricingPlan, value: any) => {
-    const updatedForm = { ...planForm, [field]: value };
-    
-    // Recalculate current price when discount changes
-    if (field === 'basePrice' || field === 'discountType' || field === 'discountValue') {
-      updatedForm.currentPrice = calculateCurrentPrice(
-        updatedForm.basePrice,
-        updatedForm.discountType,
-        updatedForm.discountValue || 0
-      );
-    }
-    
-    setPlanForm(updatedForm);
-  };
-
-  const handleFeatureChange = (index: number, value: string) => {
-    const newFeatures = [...planForm.features];
-    newFeatures[index] = value;
-    setPlanForm({ ...planForm, features: newFeatures });
-  };
-
-  const addFeature = () => {
-    setPlanForm({ ...planForm, features: [...planForm.features, ''] });
-  };
-
-  const removeFeature = (index: number) => {
-    const newFeatures = planForm.features.filter((_, i) => i !== index);
-    setPlanForm({ ...planForm, features: newFeatures });
-  };
-
-  const savePricingPlan = async () => {
-    try {
-      // Validate form
-      if (!planForm.name || !planForm.duration || planForm.basePrice < 0 || planForm.voiceLimit < 0) {
-        toast.error('Please fill in all required fields');
-        return;
-      }
-
-      // Filter out empty features
-      const validFeatures = planForm.features.filter(feature => feature.trim() !== '');
-      if (validFeatures.length === 0) {
-        toast.error('Please add at least one feature');
-        return;
-      }
-
-      const planData = {
-        ...planForm,
-        features: validFeatures,
-        currentPrice: calculateCurrentPrice(planForm.basePrice, planForm.discountType, planForm.discountValue || 0),
-        updatedAt: Timestamp.fromDate(new Date()),
-        discountExpiry: planForm.discountExpiry ? Timestamp.fromDate(planForm.discountExpiry) : null
-      };
-
-      if (editingPlan?.id) {
+      if (editingPlan) {
         // Update existing plan
-        const planRef = doc(db, 'pricingPlans', editingPlan.id);
-        await updateDoc(planRef, planData);
-        toast.success('Pricing plan updated successfully');
+        await updateDoc(doc(db, 'pricingPlans', editingPlan.id), {
+          ...planData,
+          updatedAt: now,
+          discountExpiry: planData.discountExpiry || null
+        });
+        toast.success('Pricing plan updated successfully!');
       } else {
         // Create new plan
         await addDoc(collection(db, 'pricingPlans'), {
           ...planData,
-          createdAt: Timestamp.fromDate(new Date())
+          createdAt: now,
+          updatedAt: now,
+          discountExpiry: planData.discountExpiry || null
         });
-        toast.success('Pricing plan created successfully');
+        toast.success('Pricing plan created successfully!');
       }
-
-      // Reset form and close modal
-      resetPlanForm();
-      setShowEditModal(false);
-      setEditingPlan(null);
       
-      // Reload pricing plans
+      setShowPricingModal(false);
+      setEditingPlan(null);
       await loadPricingPlans();
     } catch (error) {
       console.error('Error saving pricing plan:', error);
@@ -377,113 +317,98 @@ const AdminDashboard: React.FC = () => {
     }
   };
 
-  const deletePricingPlan = async (planId: string) => {
+  const handleDeletePricingPlan = async (planId: string) => {
     if (!confirm('Are you sure you want to delete this pricing plan?')) return;
     
     try {
       await deleteDoc(doc(db, 'pricingPlans', planId));
-      setPricingPlans(pricingPlans.filter(plan => plan.id !== planId));
-      toast.success('Pricing plan deleted successfully');
+      toast.success('Pricing plan deleted successfully!');
+      await loadPricingPlans();
     } catch (error) {
       console.error('Error deleting pricing plan:', error);
       toast.error('Failed to delete pricing plan');
     }
   };
 
-  const editPricingPlan = (plan: PricingPlan) => {
-    setEditingPlan(plan);
-    setPlanForm({
-      ...plan,
-      discountExpiry: plan.discountExpiry || null
-    });
-    setShowEditModal(true);
-  };
-
-  const resetPlanForm = () => {
-    setPlanForm({
-      name: '',
-      basePrice: 0,
-      currentPrice: 0,
-      duration: '',
-      features: [''],
-      voiceLimit: 0,
-      isActive: true,
-      discountType: null,
-      discountValue: 0,
-      discountExpiry: null,
-      discountDescription: '',
-      popular: false,
-      badge: '',
-      icon: 'Zap',
-      gradient: 'from-blue-500 to-cyan-500'
-    });
-  };
-
-  const handleBroadcastSave = async () => {
+  const handleSaveBroadcastMessage = async (messageData: Partial<BroadcastMessage>) => {
     try {
-      if (!broadcastMessage.title || !broadcastMessage.description) {
-        toast.error('Please fill in title and description');
-        return;
-      }
-
-      const messageData = {
-        title: broadcastMessage.title,
-        description: broadcastMessage.description,
-        active: broadcastMessage.active,
-        updatedAt: Timestamp.fromDate(new Date()),
-        createdBy: 'admin'
-      };
-
-      if (broadcastMessage.id) {
+      const now = new Date();
+      
+      if (editingBroadcast) {
         // Update existing message
-        const messageRef = doc(db, 'broadcastMessages', broadcastMessage.id);
-        await updateDoc(messageRef, messageData);
+        await updateDoc(doc(db, 'broadcastMessages', editingBroadcast.id), {
+          ...messageData,
+          updatedAt: now
+        });
+        toast.success('Broadcast message updated successfully!');
       } else {
         // Create new message
         await addDoc(collection(db, 'broadcastMessages'), {
           ...messageData,
-          createdAt: Timestamp.fromDate(new Date())
+          createdAt: now,
+          updatedAt: now,
+          createdBy: 'admin'
         });
+        toast.success('Broadcast message created successfully!');
       }
-
-      toast.success('Broadcast message saved successfully');
-      await loadBroadcastMessage();
+      
+      setShowBroadcastModal(false);
+      setEditingBroadcast(null);
+      await loadBroadcastMessages();
     } catch (error) {
       console.error('Error saving broadcast message:', error);
       toast.error('Failed to save broadcast message');
     }
   };
 
-  // Filter functions
-  const filteredUsers = users.filter(user => {
-    const matchesSearch = user.email.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                         user.displayName.toLowerCase().includes(searchTerm.toLowerCase());
-    const matchesStatus = statusFilter === 'all' || user.status === statusFilter;
-    return matchesSearch && matchesStatus;
-  });
+  const handleDeleteBroadcastMessage = async (messageId: string) => {
+    if (!confirm('Are you sure you want to delete this broadcast message?')) return;
+    
+    try {
+      await deleteDoc(doc(db, 'broadcastMessages', messageId));
+      toast.success('Broadcast message deleted successfully!');
+      await loadBroadcastMessages();
+    } catch (error) {
+      console.error('Error deleting broadcast message:', error);
+      toast.error('Failed to delete broadcast message');
+    }
+  };
+
+  // Filter data based on search and filters
+  const filteredUsers = users.filter(user =>
+    user.email.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    user.displayName.toLowerCase().includes(searchTerm.toLowerCase())
+  );
 
   const filteredPayments = payments.filter(payment => {
     const matchesSearch = payment.userEmail.toLowerCase().includes(searchTerm.toLowerCase()) ||
                          payment.tid.toLowerCase().includes(searchTerm.toLowerCase());
-    const matchesStatus = statusFilter === 'all' || payment.status === statusFilter;
-    return matchesSearch && matchesStatus;
+    const matchesFilter = filterStatus === 'all' || payment.status === filterStatus;
+    return matchesSearch && matchesFilter;
   });
 
-  // Statistics
+  // Calculate statistics
   const stats = {
     totalUsers: users.length,
     activeUsers: users.filter(u => u.status === 'active').length,
     proUsers: users.filter(u => u.accountStatus === 'pro').length,
+    totalPayments: payments.length,
     pendingPayments: payments.filter(p => p.status === 'pending').length,
-    totalRevenue: payments.filter(p => p.status === 'approved').reduce((sum, p) => sum + p.amount, 0)
+    approvedPayments: payments.filter(p => p.status === 'approved').length,
+    totalRevenue: payments.filter(p => p.status === 'approved').reduce((sum, p) => sum + p.amount, 0),
+    monthlyRevenue: payments.filter(p => 
+      p.status === 'approved' && 
+      p.createdAt.getMonth() === new Date().getMonth() &&
+      p.createdAt.getFullYear() === new Date().getFullYear()
+    ).reduce((sum, p) => sum + p.amount, 0)
   };
 
   if (loading) {
     return (
       <div className="min-h-screen bg-gray-50 dark:bg-gray-900 flex items-center justify-center">
         <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
-          <p className="text-gray-600 dark:text-gray-400">Loading dashboard...</p>
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-red-600 mx-auto mb-4"></div>
+          <p className="text-gray-600 dark:text-gray-400">Loading admin dashboard...</p>
         </div>
       </div>
     );
@@ -502,963 +427,926 @@ const AdminDashboard: React.FC = () => {
           </p>
         </div>
 
-        {/* Stats Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-6 mb-8">
-          <div className="bg-white dark:bg-gray-800 p-6 rounded-xl border border-gray-200 dark:border-gray-700">
-            <div className="flex items-center">
-              <Users className="h-8 w-8 text-blue-600" />
-              <div className="ml-4">
-                <p className="text-sm font-medium text-gray-600 dark:text-gray-400">Total Users</p>
-                <p className="text-2xl font-bold text-gray-900 dark:text-white">{stats.totalUsers}</p>
-              </div>
-            </div>
-          </div>
-
-          <div className="bg-white dark:bg-gray-800 p-6 rounded-xl border border-gray-200 dark:border-gray-700">
-            <div className="flex items-center">
-              <CheckCircle className="h-8 w-8 text-green-600" />
-              <div className="ml-4">
-                <p className="text-sm font-medium text-gray-600 dark:text-gray-400">Active Users</p>
-                <p className="text-2xl font-bold text-gray-900 dark:text-white">{stats.activeUsers}</p>
-              </div>
-            </div>
-          </div>
-
-          <div className="bg-white dark:bg-gray-800 p-6 rounded-xl border border-gray-200 dark:border-gray-700">
-            <div className="flex items-center">
-              <Crown className="h-8 w-8 text-purple-600" />
-              <div className="ml-4">
-                <p className="text-sm font-medium text-gray-600 dark:text-gray-400">Pro Users</p>
-                <p className="text-2xl font-bold text-gray-900 dark:text-white">{stats.proUsers}</p>
-              </div>
-            </div>
-          </div>
-
-          <div className="bg-white dark:bg-gray-800 p-6 rounded-xl border border-gray-200 dark:border-gray-700">
-            <div className="flex items-center">
-              <Clock className="h-8 w-8 text-orange-600" />
-              <div className="ml-4">
-                <p className="text-sm font-medium text-gray-600 dark:text-gray-400">Pending Payments</p>
-                <p className="text-2xl font-bold text-gray-900 dark:text-white">{stats.pendingPayments}</p>
-              </div>
-            </div>
-          </div>
-
-          <div className="bg-white dark:bg-gray-800 p-6 rounded-xl border border-gray-200 dark:border-gray-700">
-            <div className="flex items-center">
-              <DollarSign className="h-8 w-8 text-green-600" />
-              <div className="ml-4">
-                <p className="text-sm font-medium text-gray-600 dark:text-gray-400">Total Revenue</p>
-                <p className="text-2xl font-bold text-gray-900 dark:text-white">Rs. {stats.totalRevenue}</p>
-              </div>
-            </div>
-          </div>
+        {/* Navigation Tabs */}
+        <div className="mb-8">
+          <nav className="flex space-x-8 border-b border-gray-200 dark:border-gray-700">
+            {[
+              { id: 'overview', label: 'Overview', icon: <BarChart3 className="h-4 w-4" /> },
+              { id: 'users', label: 'Users', icon: <Users className="h-4 w-4" /> },
+              { id: 'payments', label: 'Payments', icon: <CreditCard className="h-4 w-4" /> },
+              { id: 'pricing', label: 'Pricing Plans', icon: <DollarSign className="h-4 w-4" /> },
+              { id: 'broadcast', label: 'Broadcast', icon: <Megaphone className="h-4 w-4" /> }
+            ].map((tab) => (
+              <button
+                key={tab.id}
+                onClick={() => setActiveTab(tab.id as any)}
+                className={`flex items-center space-x-2 py-4 px-1 border-b-2 font-medium text-sm ${
+                  activeTab === tab.id
+                    ? 'border-red-500 text-red-600 dark:text-red-400'
+                    : 'border-transparent text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-300'
+                }`}
+              >
+                {tab.icon}
+                <span>{tab.label}</span>
+              </button>
+            ))}
+          </nav>
         </div>
 
-        {/* Tabs */}
-        <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700">
-          <div className="border-b border-gray-200 dark:border-gray-700">
-            <nav className="flex space-x-8 px-6">
-              {[
-                { id: 'overview', name: 'Overview', icon: TrendingUp },
-                { id: 'users', name: 'Users', icon: Users },
-                { id: 'payments', name: 'Payments', icon: CreditCard },
-                { id: 'pricing', name: 'Pricing', icon: Tag },
-                { id: 'broadcast', name: 'Broadcast', icon: MessageSquare },
-                { id: 'settings', name: 'Settings', icon: Settings }
-              ].map((tab) => (
-                <button
-                  key={tab.id}
-                  onClick={() => setActiveTab(tab.id)}
-                  className={`py-4 px-1 border-b-2 font-medium text-sm flex items-center space-x-2 ${
-                    activeTab === tab.id
-                      ? 'border-blue-500 text-blue-600 dark:text-blue-400'
-                      : 'border-transparent text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-300'
-                  }`}
-                >
-                  <tab.icon className="h-4 w-4" />
-                  <span>{tab.name}</span>
-                </button>
-              ))}
-            </nav>
+        {/* Overview Tab */}
+        {activeTab === 'overview' && (
+          <div className="space-y-8">
+            {/* Stats Grid */}
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+              <div className="bg-white dark:bg-gray-800 rounded-xl p-6 border border-gray-200 dark:border-gray-700">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm font-medium text-gray-600 dark:text-gray-400">Total Users</p>
+                    <p className="text-2xl font-bold text-gray-900 dark:text-white">{stats.totalUsers}</p>
+                  </div>
+                  <Users className="h-8 w-8 text-blue-600" />
+                </div>
+                <p className="text-xs text-gray-500 mt-2">
+                  {stats.activeUsers} active • {stats.proUsers} pro
+                </p>
+              </div>
+
+              <div className="bg-white dark:bg-gray-800 rounded-xl p-6 border border-gray-200 dark:border-gray-700">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm font-medium text-gray-600 dark:text-gray-400">Pending Payments</p>
+                    <p className="text-2xl font-bold text-gray-900 dark:text-white">{stats.pendingPayments}</p>
+                  </div>
+                  <Clock className="h-8 w-8 text-yellow-600" />
+                </div>
+                <p className="text-xs text-gray-500 mt-2">
+                  {stats.approvedPayments} approved total
+                </p>
+              </div>
+
+              <div className="bg-white dark:bg-gray-800 rounded-xl p-6 border border-gray-200 dark:border-gray-700">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm font-medium text-gray-600 dark:text-gray-400">Monthly Revenue</p>
+                    <p className="text-2xl font-bold text-gray-900 dark:text-white">Rs. {stats.monthlyRevenue}</p>
+                  </div>
+                  <TrendingUp className="h-8 w-8 text-green-600" />
+                </div>
+                <p className="text-xs text-gray-500 mt-2">
+                  Rs. {stats.totalRevenue} total
+                </p>
+              </div>
+
+              <div className="bg-white dark:bg-gray-800 rounded-xl p-6 border border-gray-200 dark:border-gray-700">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm font-medium text-gray-600 dark:text-gray-400">Active Plans</p>
+                    <p className="text-2xl font-bold text-gray-900 dark:text-white">{pricingPlans.filter(p => p.isActive).length}</p>
+                  </div>
+                  <Crown className="h-8 w-8 text-purple-600" />
+                </div>
+                <p className="text-xs text-gray-500 mt-2">
+                  {pricingPlans.length} total plans
+                </p>
+              </div>
+            </div>
+
+            {/* Recent Activity */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+              {/* Recent Payments */}
+              <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700">
+                <div className="p-6 border-b border-gray-200 dark:border-gray-700">
+                  <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Recent Payments</h3>
+                </div>
+                <div className="p-6">
+                  <div className="space-y-4">
+                    {payments.slice(0, 5).map((payment) => (
+                      <div key={payment.id} className="flex items-center justify-between">
+                        <div>
+                          <p className="font-medium text-gray-900 dark:text-white">{payment.userEmail}</p>
+                          <p className="text-sm text-gray-500">{payment.plan} - Rs. {payment.amount}</p>
+                        </div>
+                        <span className={`px-2 py-1 rounded-full text-xs font-medium ${
+                          payment.status === 'approved' ? 'bg-green-100 text-green-700' :
+                          payment.status === 'pending' ? 'bg-yellow-100 text-yellow-700' :
+                          'bg-red-100 text-red-700'
+                        }`}>
+                          {payment.status}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              {/* Recent Users */}
+              <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700">
+                <div className="p-6 border-b border-gray-200 dark:border-gray-700">
+                  <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Recent Users</h3>
+                </div>
+                <div className="p-6">
+                  <div className="space-y-4">
+                    {users.slice(0, 5).map((user) => (
+                      <div key={user.uid} className="flex items-center justify-between">
+                        <div>
+                          <p className="font-medium text-gray-900 dark:text-white">{user.displayName}</p>
+                          <p className="text-sm text-gray-500">{user.email}</p>
+                        </div>
+                        <div className="flex items-center space-x-2">
+                          {user.accountStatus === 'pro' && (
+                            <Crown className="h-4 w-4 text-purple-600" />
+                          )}
+                          <span className={`px-2 py-1 rounded-full text-xs font-medium ${
+                            user.status === 'active' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'
+                          }`}>
+                            {user.status}
+                          </span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            </div>
           </div>
+        )}
 
-          <div className="p-6">
-            {/* Overview Tab */}
-            {activeTab === 'overview' && (
-              <div className="space-y-6">
-                <h2 className="text-xl font-semibold text-gray-900 dark:text-white">Dashboard Overview</h2>
-                
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                  {/* Recent Users */}
-                  <div className="bg-gray-50 dark:bg-gray-700 rounded-lg p-6">
-                    <h3 className="text-lg font-medium text-gray-900 dark:text-white mb-4">Recent Users</h3>
-                    <div className="space-y-3">
-                      {users.slice(0, 5).map((user) => (
-                        <div key={user.id} className="flex items-center justify-between">
-                          <div>
-                            <p className="font-medium text-gray-900 dark:text-white">{user.displayName}</p>
-                            <p className="text-sm text-gray-500 dark:text-gray-400">{user.email}</p>
-                          </div>
-                          <span className={`px-2 py-1 text-xs font-medium rounded-full ${
-                            user.accountStatus === 'pro' 
-                              ? 'bg-purple-100 text-purple-700 dark:bg-purple-900 dark:text-purple-300'
-                              : 'bg-gray-100 text-gray-700 dark:bg-gray-600 dark:text-gray-300'
-                          }`}>
-                            {user.accountStatus}
-                          </span>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-
-                  {/* Recent Payments */}
-                  <div className="bg-gray-50 dark:bg-gray-700 rounded-lg p-6">
-                    <h3 className="text-lg font-medium text-gray-900 dark:text-white mb-4">Recent Payments</h3>
-                    <div className="space-y-3">
-                      {payments.slice(0, 5).map((payment) => (
-                        <div key={payment.id} className="flex items-center justify-between">
-                          <div>
-                            <p className="font-medium text-gray-900 dark:text-white">Rs. {payment.amount}</p>
-                            <p className="text-sm text-gray-500 dark:text-gray-400">{payment.userEmail}</p>
-                          </div>
-                          <span className={`px-2 py-1 text-xs font-medium rounded-full ${
-                            payment.status === 'approved' 
-                              ? 'bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300'
-                              : payment.status === 'pending'
-                              ? 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900 dark:text-yellow-300'
-                              : 'bg-red-100 text-red-700 dark:bg-red-900 dark:text-red-300'
-                          }`}>
-                            {payment.status}
-                          </span>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                </div>
+        {/* Users Tab */}
+        {activeTab === 'users' && (
+          <div className="space-y-6">
+            {/* Search and Filters */}
+            <div className="flex flex-col sm:flex-row gap-4">
+              <div className="relative flex-1">
+                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
+                <input
+                  type="text"
+                  placeholder="Search users..."
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  className="pl-10 w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg dark:bg-gray-700 dark:text-white"
+                />
               </div>
-            )}
+            </div>
 
-            {/* Users Tab */}
-            {activeTab === 'users' && (
-              <div className="space-y-6">
-                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-                  <h2 className="text-xl font-semibold text-gray-900 dark:text-white">User Management</h2>
-                  <button
-                    onClick={loadUsers}
-                    className="inline-flex items-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-                  >
-                    <RefreshCw className="h-4 w-4 mr-2" />
-                    Refresh
-                  </button>
-                </div>
-
-                {/* Search and Filter */}
-                <div className="flex flex-col sm:flex-row gap-4">
-                  <div className="relative flex-1">
-                    <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
-                    <input
-                      type="text"
-                      placeholder="Search users..."
-                      value={searchTerm}
-                      onChange={(e) => setSearchTerm(e.target.value)}
-                      className="pl-10 w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg dark:bg-gray-700 dark:text-white"
-                    />
-                  </div>
-                  <select
-                    value={statusFilter}
-                    onChange={(e) => setStatusFilter(e.target.value)}
-                    className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg dark:bg-gray-700 dark:text-white"
-                  >
-                    <option value="all">All Status</option>
-                    <option value="active">Active</option>
-                    <option value="inactive">Inactive</option>
-                  </select>
-                </div>
-
-                {/* Users Table */}
-                <div className="overflow-x-auto">
-                  <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
-                    <thead className="bg-gray-50 dark:bg-gray-700">
-                      <tr>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                          User
-                        </th>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                          Plan
-                        </th>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                          Voices Used
-                        </th>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                          Status
-                        </th>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                          Actions
-                        </th>
-                      </tr>
-                    </thead>
-                    <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
-                      {filteredUsers.map((user) => (
-                        <tr key={user.id}>
-                          <td className="px-6 py-4 whitespace-nowrap">
-                            <div>
-                              <div className="text-sm font-medium text-gray-900 dark:text-white">
-                                {user.displayName}
-                              </div>
-                              <div className="text-sm text-gray-500 dark:text-gray-400">
-                                {user.email}
-                              </div>
-                            </div>
-                          </td>
-                          <td className="px-6 py-4 whitespace-nowrap">
-                            <span className={`px-2 py-1 text-xs font-medium rounded-full ${
-                              user.accountStatus === 'pro' 
-                                ? 'bg-purple-100 text-purple-700 dark:bg-purple-900 dark:text-purple-300'
-                                : 'bg-gray-100 text-gray-700 dark:bg-gray-600 dark:text-gray-300'
-                            }`}>
-                              {user.accountStatus === 'pro' ? `Pro (${user.plan})` : 'Free'}
-                            </span>
-                          </td>
-                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-white">
-                            {user.voicesGenerated || 0}
-                          </td>
-                          <td className="px-6 py-4 whitespace-nowrap">
-                            <span className={`px-2 py-1 text-xs font-medium rounded-full ${
-                              user.status === 'active' 
-                                ? 'bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300'
-                                : 'bg-red-100 text-red-700 dark:bg-red-900 dark:text-red-300'
-                            }`}>
-                              {user.status}
-                            </span>
-                          </td>
-                          <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                            <button
-                              onClick={() => handleUserStatusToggle(user.id, user.status)}
-                              className={`px-3 py-1 rounded text-xs font-medium ${
-                                user.status === 'active'
-                                  ? 'bg-red-100 text-red-700 hover:bg-red-200 dark:bg-red-900 dark:text-red-300'
-                                  : 'bg-green-100 text-green-700 hover:bg-green-200 dark:bg-green-900 dark:text-green-300'
-                              }`}
-                            >
-                              {user.status === 'active' ? 'Deactivate' : 'Activate'}
-                            </button>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            )}
-
-            {/* Payments Tab */}
-            {activeTab === 'payments' && (
-              <div className="space-y-6">
-                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-                  <h2 className="text-xl font-semibold text-gray-900 dark:text-white">Payment Management</h2>
-                  <button
-                    onClick={loadPayments}
-                    className="inline-flex items-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-                  >
-                    <RefreshCw className="h-4 w-4 mr-2" />
-                    Refresh
-                  </button>
-                </div>
-
-                {/* Search and Filter */}
-                <div className="flex flex-col sm:flex-row gap-4">
-                  <div className="relative flex-1">
-                    <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
-                    <input
-                      type="text"
-                      placeholder="Search payments..."
-                      value={searchTerm}
-                      onChange={(e) => setSearchTerm(e.target.value)}
-                      className="pl-10 w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg dark:bg-gray-700 dark:text-white"
-                    />
-                  </div>
-                  <select
-                    value={statusFilter}
-                    onChange={(e) => setStatusFilter(e.target.value)}
-                    className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg dark:bg-gray-700 dark:text-white"
-                  >
-                    <option value="all">All Status</option>
-                    <option value="pending">Pending</option>
-                    <option value="approved">Approved</option>
-                    <option value="rejected">Rejected</option>
-                  </select>
-                </div>
-
-                {/* Payments Table */}
-                <div className="overflow-x-auto">
-                  <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
-                    <thead className="bg-gray-50 dark:bg-gray-700">
-                      <tr>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                          User
-                        </th>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                          Plan
-                        </th>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                          Amount
-                        </th>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                          Transaction ID
-                        </th>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                          Status
-                        </th>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                          Actions
-                        </th>
-                      </tr>
-                    </thead>
-                    <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
-                      {filteredPayments.map((payment) => (
-                        <tr key={payment.id}>
-                          <td className="px-6 py-4 whitespace-nowrap">
+            {/* Users Table */}
+            <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 overflow-hidden">
+              <div className="overflow-x-auto">
+                <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
+                  <thead className="bg-gray-50 dark:bg-gray-700">
+                    <tr>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
+                        User
+                      </th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
+                        Plan
+                      </th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
+                        Voices Used
+                      </th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
+                        Status
+                      </th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
+                        Actions
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
+                    {filteredUsers.map((user) => (
+                      <tr key={user.uid}>
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          <div>
                             <div className="text-sm font-medium text-gray-900 dark:text-white">
-                              {payment.userEmail}
+                              {user.displayName}
                             </div>
-                          </td>
-                          <td className="px-6 py-4 whitespace-nowrap">
-                            <div className="text-sm text-gray-900 dark:text-white">
-                              {payment.plan}
-                            </div>
-                            <div className="text-sm text-gray-500 dark:text-gray-400">
-                              {payment.planDuration}
-                            </div>
-                          </td>
-                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-white">
-                            Rs. {payment.amount}
-                          </td>
-                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-white font-mono">
-                            {payment.tid}
-                          </td>
-                          <td className="px-6 py-4 whitespace-nowrap">
-                            <span className={`px-2 py-1 text-xs font-medium rounded-full ${
-                              payment.status === 'approved' 
-                                ? 'bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300'
-                                : payment.status === 'pending'
-                                ? 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900 dark:text-yellow-300'
-                                : 'bg-red-100 text-red-700 dark:bg-red-900 dark:text-red-300'
-                            }`}>
-                              {payment.status}
-                            </span>
-                          </td>
-                          <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                            {payment.status === 'pending' && (
-                              <div className="flex space-x-2">
-                                <button
-                                  onClick={() => handlePaymentStatusUpdate(payment.id, 'approved')}
-                                  className="px-3 py-1 bg-green-100 text-green-700 rounded text-xs font-medium hover:bg-green-200 dark:bg-green-900 dark:text-green-300"
-                                >
-                                  Approve
-                                </button>
-                                <button
-                                  onClick={() => handlePaymentStatusUpdate(payment.id, 'rejected')}
-                                  className="px-3 py-1 bg-red-100 text-red-700 rounded text-xs font-medium hover:bg-red-200 dark:bg-red-900 dark:text-red-300"
-                                >
-                                  Reject
-                                </button>
-                              </div>
+                            <div className="text-sm text-gray-500">{user.email}</div>
+                          </div>
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          <div className="flex items-center">
+                            {user.accountStatus === 'pro' && (
+                              <Crown className="h-4 w-4 text-purple-600 mr-2" />
                             )}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            )}
-
-            {/* Pricing Tab */}
-            {activeTab === 'pricing' && (
-              <div className="space-y-6">
-                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-                  <h2 className="text-xl font-semibold text-gray-900 dark:text-white">Pricing Management</h2>
-                  <div className="flex gap-2">
-                    <button
-                      onClick={loadPricingPlans}
-                      className="inline-flex items-center px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors"
-                    >
-                      <RefreshCw className="h-4 w-4 mr-2" />
-                      Refresh
-                    </button>
-                    <button
-                      onClick={() => {
-                        resetPlanForm();
-                        setEditingPlan(null);
-                        setShowEditModal(true);
-                      }}
-                      className="inline-flex items-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-                    >
-                      <Plus className="h-4 w-4 mr-2" />
-                      Add New Plan
-                    </button>
-                  </div>
-                </div>
-
-                {/* Pricing Plans Grid */}
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                  {pricingPlans.map((plan) => (
-                    <div
-                      key={plan.id}
-                      className={`bg-white dark:bg-gray-800 rounded-xl border-2 p-6 ${
-                        plan.popular 
-                          ? 'border-purple-500 ring-2 ring-purple-200 dark:ring-purple-800' 
-                          : 'border-gray-200 dark:border-gray-700'
-                      }`}
-                    >
-                      {/* Plan Header */}
-                      <div className="text-center mb-6">
-                        {plan.badge && (
-                          <span className="inline-block px-3 py-1 bg-gradient-to-r from-purple-500 to-pink-500 text-white text-xs font-bold rounded-full mb-3">
-                            {plan.badge}
-                          </span>
-                        )}
-                        
-                        <h3 className="text-xl font-bold text-gray-900 dark:text-white mb-2">
-                          {plan.name}
-                        </h3>
-                        
-                        <div className="mb-4">
-                          <div className="flex items-center justify-center space-x-2">
-                            <span className="text-3xl font-bold text-gray-900 dark:text-white">
-                              {plan.currentPrice === 0 ? 'Free' : `Rs. ${plan.currentPrice}`}
+                            <span className="text-sm text-gray-900 dark:text-white">
+                              {user.accountStatus === 'pro' ? user.plan || 'Pro' : 'Free'}
                             </span>
-                            {plan.basePrice !== plan.currentPrice && (
-                              <span className="text-lg text-gray-500 line-through">
-                                Rs. {plan.basePrice}
+                          </div>
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-white">
+                          {user.voicesGenerated || 0}
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          <span className={`px-2 py-1 rounded-full text-xs font-medium ${
+                            user.status === 'active' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'
+                          }`}>
+                            {user.status}
+                          </span>
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
+                          <button
+                            onClick={() => handleUserStatusToggle(user.uid, user.status)}
+                            className={`inline-flex items-center px-3 py-1 rounded-md text-xs font-medium ${
+                              user.status === 'active'
+                                ? 'bg-red-100 text-red-700 hover:bg-red-200'
+                                : 'bg-green-100 text-green-700 hover:bg-green-200'
+                            }`}
+                          >
+                            {user.status === 'active' ? (
+                              <>
+                                <UserX className="h-3 w-3 mr-1" />
+                                Deactivate
+                              </>
+                            ) : (
+                              <>
+                                <UserCheck className="h-3 w-3 mr-1" />
+                                Activate
+                              </>
+                            )}
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Payments Tab */}
+        {activeTab === 'payments' && (
+          <div className="space-y-6">
+            {/* Search and Filters */}
+            <div className="flex flex-col sm:flex-row gap-4">
+              <div className="relative flex-1">
+                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
+                <input
+                  type="text"
+                  placeholder="Search payments..."
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  className="pl-10 w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg dark:bg-gray-700 dark:text-white"
+                />
+              </div>
+              <select
+                value={filterStatus}
+                onChange={(e) => setFilterStatus(e.target.value as any)}
+                className="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg dark:bg-gray-700 dark:text-white"
+              >
+                <option value="all">All Status</option>
+                <option value="pending">Pending</option>
+                <option value="approved">Approved</option>
+                <option value="rejected">Rejected</option>
+              </select>
+            </div>
+
+            {/* Payments Table */}
+            <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 overflow-hidden">
+              <div className="overflow-x-auto">
+                <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
+                  <thead className="bg-gray-50 dark:bg-gray-700">
+                    <tr>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
+                        User
+                      </th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
+                        Plan
+                      </th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
+                        Amount
+                      </th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
+                        Transaction ID
+                      </th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
+                        Status
+                      </th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
+                        Actions
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
+                    {filteredPayments.map((payment) => (
+                      <tr key={payment.id}>
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          <div className="text-sm font-medium text-gray-900 dark:text-white">
+                            {payment.userEmail}
+                          </div>
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-white">
+                          {payment.plan}
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          <div className="text-sm text-gray-900 dark:text-white">
+                            Rs. {payment.amount}
+                            {payment.originalAmount && payment.originalAmount !== payment.amount && (
+                              <span className="text-xs text-gray-500 line-through ml-2">
+                                Rs. {payment.originalAmount}
                               </span>
                             )}
                           </div>
-                          <p className="text-gray-600 dark:text-gray-400 text-sm mt-1">
-                            {plan.duration}
-                          </p>
-                        </div>
-                      </div>
-
-                      {/* Features */}
-                      <ul className="space-y-2 mb-6 text-left">
-                        {plan.features.map((feature, index) => (
-                          <li key={index} className="flex items-start text-sm text-gray-600 dark:text-gray-300">
-                            <CheckCircle className="h-4 w-4 text-green-500 mr-2 flex-shrink-0 mt-0.5" />
-                            {feature}
-                          </li>
-                        ))}
-                      </ul>
-
-                      {/* Plan Info */}
-                      <div className="space-y-2 text-sm text-gray-600 dark:text-gray-400 mb-6">
-                        <p><strong>Voice Limit:</strong> {plan.voiceLimit === 999999 ? 'Unlimited' : plan.voiceLimit}</p>
-                        <p><strong>Status:</strong> 
-                          <span className={`ml-1 px-2 py-1 rounded-full text-xs ${
-                            plan.isActive 
-                              ? 'bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300'
-                              : 'bg-red-100 text-red-700 dark:bg-red-900 dark:text-red-300'
-                          }`}>
-                            {plan.isActive ? 'Active' : 'Inactive'}
-                          </span>
-                        </p>
-                        {plan.discountExpiry && (
-                          <p><strong>Discount Expires:</strong> {plan.discountExpiry.toLocaleDateString()}</p>
-                        )}
-                      </div>
-
-                      {/* Actions */}
-                      <div className="flex space-x-2">
-                        <button
-                          onClick={() => editPricingPlan(plan)}
-                          className="flex-1 flex items-center justify-center px-3 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm"
-                        >
-                          <Edit className="h-4 w-4 mr-1" />
-                          Edit
-                        </button>
-                        <button
-                          onClick={() => deletePricingPlan(plan.id!)}
-                          className="flex items-center justify-center px-3 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors text-sm"
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {/* Broadcast Tab */}
-            {activeTab === 'broadcast' && (
-              <div className="space-y-6">
-                <h2 className="text-xl font-semibold text-gray-900 dark:text-white">Broadcast Message</h2>
-                
-                <div className="bg-gray-50 dark:bg-gray-700 rounded-lg p-6">
-                  <div className="space-y-4">
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                        Message Title
-                      </label>
-                      <input
-                        type="text"
-                        value={broadcastMessage.title}
-                        onChange={(e) => setBroadcastMessage({ ...broadcastMessage, title: e.target.value })}
-                        className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg dark:bg-gray-800 dark:text-white"
-                        placeholder="Enter broadcast message title"
-                      />
-                    </div>
-
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                        Message Description
-                      </label>
-                      <textarea
-                        value={broadcastMessage.description}
-                        onChange={(e) => setBroadcastMessage({ ...broadcastMessage, description: e.target.value })}
-                        rows={4}
-                        className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg dark:bg-gray-800 dark:text-white"
-                        placeholder="Enter broadcast message description"
-                      />
-                    </div>
-
-                    <div className="flex items-center">
-                      <input
-                        type="checkbox"
-                        id="broadcast-active"
-                        checked={broadcastMessage.active}
-                        onChange={(e) => setBroadcastMessage({ ...broadcastMessage, active: e.target.checked })}
-                        className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
-                      />
-                      <label htmlFor="broadcast-active" className="ml-2 block text-sm text-gray-900 dark:text-white">
-                        Active (show to users)
-                      </label>
-                    </div>
-
-                    <button
-                      onClick={handleBroadcastSave}
-                      className="inline-flex items-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-                    >
-                      <Send className="h-4 w-4 mr-2" />
-                      Save Broadcast Message
-                    </button>
-                  </div>
-                </div>
-
-                {/* Preview */}
-                {broadcastMessage.title && broadcastMessage.description && (
-                  <div className="bg-white dark:bg-gray-800 rounded-lg p-6 border border-gray-200 dark:border-gray-700">
-                    <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">Preview</h3>
-                    <div className="bg-blue-50 dark:bg-blue-900 rounded-lg p-4 border border-blue-200 dark:border-blue-700">
-                      <h4 className="font-semibold text-gray-900 dark:text-white mb-2">
-                        {broadcastMessage.title}
-                      </h4>
-                      <p className="text-gray-600 dark:text-gray-300">
-                        {broadcastMessage.description}
-                      </p>
-                    </div>
-                  </div>
-                )}
-              </div>
-            )}
-
-            {/* Settings Tab */}
-            {activeTab === 'settings' && (
-              <div className="space-y-6">
-                <h2 className="text-xl font-semibold text-gray-900 dark:text-white">System Settings</h2>
-                
-                <div className="bg-gray-50 dark:bg-gray-700 rounded-lg p-6">
-                  <p className="text-gray-600 dark:text-gray-400">
-                    System settings and configuration options will be available here.
-                  </p>
-                </div>
-              </div>
-            )}
-          </div>
-        </div>
-      </div>
-
-      {/* Pricing Plan Edit Modal */}
-      {showEditModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white dark:bg-gray-800 rounded-2xl max-w-4xl w-full max-h-[90vh] overflow-y-auto">
-            <div className="p-6">
-              <div className="flex justify-between items-center mb-6">
-                <h3 className="text-xl font-bold text-gray-900 dark:text-white">
-                  {editingPlan ? 'Edit Pricing Plan' : 'Create New Pricing Plan'}
-                </h3>
-                <button
-                  onClick={() => {
-                    setShowEditModal(false);
-                    setEditingPlan(null);
-                    resetPlanForm();
-                  }}
-                  className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
-                >
-                  <X className="h-6 w-6" />
-                </button>
-              </div>
-
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-                {/* Form */}
-                <div className="space-y-6">
-                  {/* Basic Info */}
-                  <div className="space-y-4">
-                    <h4 className="text-lg font-semibold text-gray-900 dark:text-white">Basic Information</h4>
-                    
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                        Plan Name *
-                      </label>
-                      <input
-                        type="text"
-                        value={planForm.name}
-                        onChange={(e) => handlePlanFormChange('name', e.target.value)}
-                        className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg dark:bg-gray-700 dark:text-white"
-                        placeholder="e.g., Pro Plan"
-                      />
-                    </div>
-
-                    <div className="grid grid-cols-2 gap-4">
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                          Base Price (Rs.) *
-                        </label>
-                        <input
-                          type="number"
-                          value={planForm.basePrice}
-                          onChange={(e) => handlePlanFormChange('basePrice', parseInt(e.target.value) || 0)}
-                          className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg dark:bg-gray-700 dark:text-white"
-                          min="0"
-                        />
-                      </div>
-
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                          Current Price (Rs.)
-                        </label>
-                        <input
-                          type="number"
-                          value={planForm.currentPrice}
-                          readOnly
-                          className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg dark:bg-gray-600 dark:text-gray-300 bg-gray-100"
-                        />
-                      </div>
-                    </div>
-
-                    <div className="grid grid-cols-2 gap-4">
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                          Duration *
-                        </label>
-                        <input
-                          type="text"
-                          value={planForm.duration}
-                          onChange={(e) => handlePlanFormChange('duration', e.target.value)}
-                          className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg dark:bg-gray-700 dark:text-white"
-                          placeholder="e.g., 30 Days"
-                        />
-                      </div>
-
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                          Voice Limit *
-                        </label>
-                        <input
-                          type="number"
-                          value={planForm.voiceLimit}
-                          onChange={(e) => handlePlanFormChange('voiceLimit', parseInt(e.target.value) || 0)}
-                          className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg dark:bg-gray-700 dark:text-white"
-                          min="0"
-                          placeholder="999999 for unlimited"
-                        />
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Discount Settings */}
-                  <div className="space-y-4">
-                    <h4 className="text-lg font-semibold text-gray-900 dark:text-white">Discount Settings</h4>
-                    
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                        Discount Type
-                      </label>
-                      <select
-                        value={planForm.discountType || ''}
-                        onChange={(e) => handlePlanFormChange('discountType', e.target.value || null)}
-                        className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg dark:bg-gray-700 dark:text-white"
-                      >
-                        <option value="">No Discount</option>
-                        <option value="percentage">Percentage Discount</option>
-                        <option value="fixed">Fixed Amount Discount</option>
-                      </select>
-                    </div>
-
-                    {planForm.discountType && (
-                      <>
-                        <div>
-                          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                            Discount Value {planForm.discountType === 'percentage' ? '(%)' : '(Rs.)'}
-                          </label>
-                          <input
-                            type="number"
-                            value={planForm.discountValue || 0}
-                            onChange={(e) => handlePlanFormChange('discountValue', parseInt(e.target.value) || 0)}
-                            className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg dark:bg-gray-700 dark:text-white"
-                            min="0"
-                            max={planForm.discountType === 'percentage' ? 100 : planForm.basePrice}
-                          />
-                        </div>
-
-                        <div>
-                          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                            Discount Expiry Date
-                          </label>
-                          <input
-                            type="date"
-                            value={planForm.discountExpiry ? planForm.discountExpiry.toISOString().split('T')[0] : ''}
-                            onChange={(e) => handlePlanFormChange('discountExpiry', e.target.value ? new Date(e.target.value) : null)}
-                            className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg dark:bg-gray-700 dark:text-white"
-                          />
-                        </div>
-
-                        <div>
-                          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                            Discount Description
-                          </label>
-                          <input
-                            type="text"
-                            value={planForm.discountDescription || ''}
-                            onChange={(e) => handlePlanFormChange('discountDescription', e.target.value)}
-                            className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg dark:bg-gray-700 dark:text-white"
-                            placeholder="e.g., Limited Time Offer"
-                          />
-                        </div>
-                      </>
-                    )}
-                  </div>
-
-                  {/* Features */}
-                  <div className="space-y-4">
-                    <h4 className="text-lg font-semibold text-gray-900 dark:text-white">Features</h4>
-                    
-                    {planForm.features.map((feature, index) => (
-                      <div key={index} className="flex gap-2">
-                        <input
-                          type="text"
-                          value={feature}
-                          onChange={(e) => handleFeatureChange(index, e.target.value)}
-                          className="flex-1 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg dark:bg-gray-700 dark:text-white"
-                          placeholder="Enter feature description"
-                        />
-                        <button
-                          onClick={() => removeFeature(index)}
-                          className="px-3 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors"
-                        >
-                          <X className="h-4 w-4" />
-                        </button>
-                      </div>
-                    ))}
-                    
-                    <button
-                      onClick={addFeature}
-                      className="inline-flex items-center px-3 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
-                    >
-                      <Plus className="h-4 w-4 mr-2" />
-                      Add Feature
-                    </button>
-                  </div>
-
-                  {/* Visual Settings */}
-                  <div className="space-y-4">
-                    <h4 className="text-lg font-semibold text-gray-900 dark:text-white">Visual Settings</h4>
-                    
-                    <div className="grid grid-cols-2 gap-4">
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                          Icon
-                        </label>
-                        <select
-                          value={planForm.icon || 'Zap'}
-                          onChange={(e) => handlePlanFormChange('icon', e.target.value)}
-                          className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg dark:bg-gray-700 dark:text-white"
-                        >
-                          <option value="Zap">⚡ Zap</option>
-                          <option value="Crown">👑 Crown</option>
-                          <option value="Star">⭐ Star</option>
-                          <option value="Gift">🎁 Gift</option>
-                          <option value="Users">👥 Users</option>
-                        </select>
-                      </div>
-
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                          Gradient
-                        </label>
-                        <select
-                          value={planForm.gradient || 'from-blue-500 to-cyan-500'}
-                          onChange={(e) => handlePlanFormChange('gradient', e.target.value)}
-                          className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg dark:bg-gray-700 dark:text-white"
-                        >
-                          <option value="from-blue-500 to-cyan-500">Blue to Cyan</option>
-                          <option value="from-purple-500 to-pink-500">Purple to Pink</option>
-                          <option value="from-green-500 to-emerald-500">Green to Emerald</option>
-                          <option value="from-yellow-500 to-orange-500">Yellow to Orange</option>
-                          <option value="from-red-500 to-pink-500">Red to Pink</option>
-                        </select>
-                      </div>
-                    </div>
-
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                        Badge Text
-                      </label>
-                      <input
-                        type="text"
-                        value={planForm.badge || ''}
-                        onChange={(e) => handlePlanFormChange('badge', e.target.value)}
-                        className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg dark:bg-gray-700 dark:text-white"
-                        placeholder="e.g., MOST POPULAR"
-                      />
-                    </div>
-
-                    <div className="flex items-center space-x-4">
-                      <label className="flex items-center">
-                        <input
-                          type="checkbox"
-                          checked={planForm.popular || false}
-                          onChange={(e) => handlePlanFormChange('popular', e.target.checked)}
-                          className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
-                        />
-                        <span className="ml-2 text-sm text-gray-900 dark:text-white">Popular Plan</span>
-                      </label>
-
-                      <label className="flex items-center">
-                        <input
-                          type="checkbox"
-                          checked={planForm.isActive}
-                          onChange={(e) => handlePlanFormChange('isActive', e.target.checked)}
-                          className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
-                        />
-                        <span className="ml-2 text-sm text-gray-900 dark:text-white">Active</span>
-                      </label>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Preview */}
-                <div className="space-y-6">
-                  <h4 className="text-lg font-semibold text-gray-900 dark:text-white">Preview</h4>
-                  
-                  <div className={`bg-white dark:bg-gray-800 rounded-xl border-2 p-6 ${
-                    planForm.popular 
-                      ? 'border-purple-500 ring-2 ring-purple-200 dark:ring-purple-800' 
-                      : 'border-gray-200 dark:border-gray-700'
-                  }`}>
-                    {/* Preview Badge */}
-                    {planForm.badge && (
-                      <div className="text-center mb-4">
-                        <span className={`inline-block px-3 py-1 bg-gradient-to-r ${planForm.gradient} text-white text-xs font-bold rounded-full`}>
-                          {planForm.badge}
-                        </span>
-                      </div>
-                    )}
-                    
-                    {/* Preview Icon */}
-                    <div className="text-center mb-4">
-                      <div className={`inline-flex p-3 rounded-full bg-gradient-to-r ${planForm.gradient}`}>
-                        {planForm.icon === 'Crown' && <Crown className="h-6 w-6 text-white" />}
-                        {planForm.icon === 'Star' && <Star className="h-6 w-6 text-white" />}
-                        {planForm.icon === 'Gift' && <Gift className="h-6 w-6 text-white" />}
-                        {planForm.icon === 'Users' && <Users className="h-6 w-6 text-white" />}
-                        {(!planForm.icon || planForm.icon === 'Zap') && <Zap className="h-6 w-6 text-white" />}
-                      </div>
-                    </div>
-                    
-                    {/* Preview Name */}
-                    <h3 className="text-xl font-bold text-gray-900 dark:text-white mb-2 text-center">
-                      {planForm.name || 'Plan Name'}
-                    </h3>
-                    
-                    {/* Preview Pricing */}
-                    <div className="text-center mb-4">
-                      <div className="flex items-center justify-center space-x-2">
-                        <span className="text-3xl font-bold text-gray-900 dark:text-white">
-                          {planForm.currentPrice === 0 ? 'Free' : `Rs. ${planForm.currentPrice}`}
-                        </span>
-                        {planForm.basePrice !== planForm.currentPrice && planForm.basePrice > 0 && (
-                          <span className="text-lg text-gray-500 line-through">
-                            Rs. {planForm.basePrice}
-                          </span>
-                        )}
-                      </div>
-                      <p className="text-gray-600 dark:text-gray-400 text-sm mt-1">
-                        {planForm.duration || 'Duration'}
-                      </p>
-                      
-                      {/* Discount Info */}
-                      {planForm.discountType && planForm.discountValue && (
-                        <div className="mt-2">
-                          <span className="inline-block px-2 py-1 bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300 text-xs font-medium rounded-full">
-                            {planForm.discountType === 'percentage' 
-                              ? `${planForm.discountValue}% OFF` 
-                              : `Rs. ${planForm.discountValue} OFF`}
-                          </span>
-                          {planForm.discountExpiry && (
-                            <p className="text-xs text-orange-600 dark:text-orange-400 mt-1">
-                              Expires: {planForm.discountExpiry.toLocaleDateString()}
-                            </p>
+                          {payment.savings && payment.savings > 0 && (
+                            <div className="text-xs text-green-600">
+                              Saved Rs. {payment.savings}
+                            </div>
                           )}
-                        </div>
-                      )}
-                    </div>
-
-                    {/* Preview Features */}
-                    <ul className="space-y-2 mb-6 text-left">
-                      {planForm.features.filter(f => f.trim()).map((feature, index) => (
-                        <li key={index} className="flex items-start text-sm text-gray-600 dark:text-gray-300">
-                          <CheckCircle className="h-4 w-4 text-green-500 mr-2 flex-shrink-0 mt-0.5" />
-                          {feature}
-                        </li>
-                      ))}
-                    </ul>
-
-                    {/* Preview Info */}
-                    <div className="text-xs text-gray-500 dark:text-gray-400 space-y-1">
-                      <p><strong>Voice Limit:</strong> {planForm.voiceLimit === 999999 ? 'Unlimited' : planForm.voiceLimit}</p>
-                      <p><strong>Status:</strong> {planForm.isActive ? 'Active' : 'Inactive'}</p>
-                      {planForm.popular && <p><strong>Popular Plan</strong></p>}
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              {/* Modal Actions */}
-              <div className="flex justify-end space-x-3 mt-8 pt-6 border-t border-gray-200 dark:border-gray-600">
-                <button
-                  onClick={() => {
-                    setShowEditModal(false);
-                    setEditingPlan(null);
-                    resetPlanForm();
-                  }}
-                  className="px-4 py-2 bg-gray-300 dark:bg-gray-600 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-400 dark:hover:bg-gray-500 transition-colors"
-                >
-                  Cancel
-                </button>
-                <button
-                  onClick={savePricingPlan}
-                  className="inline-flex items-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-                >
-                  <Save className="h-4 w-4 mr-2" />
-                  {editingPlan ? 'Update Plan' : 'Create Plan'}
-                </button>
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm font-mono text-gray-900 dark:text-white">
+                          {payment.tid}
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          <span className={`px-2 py-1 rounded-full text-xs font-medium ${
+                            payment.status === 'approved' ? 'bg-green-100 text-green-700' :
+                            payment.status === 'pending' ? 'bg-yellow-100 text-yellow-700' :
+                            'bg-red-100 text-red-700'
+                          }`}>
+                            {payment.status}
+                          </span>
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
+                          {payment.status === 'pending' && (
+                            <div className="flex space-x-2">
+                              <button
+                                onClick={() => handlePaymentAction(payment.id, 'approve')}
+                                className="inline-flex items-center px-3 py-1 bg-green-100 text-green-700 rounded-md hover:bg-green-200 text-xs"
+                              >
+                                <CheckCircle className="h-3 w-3 mr-1" />
+                                Approve
+                              </button>
+                              <button
+                                onClick={() => handlePaymentAction(payment.id, 'reject')}
+                                className="inline-flex items-center px-3 py-1 bg-red-100 text-red-700 rounded-md hover:bg-red-200 text-xs"
+                              >
+                                <XCircle className="h-3 w-3 mr-1" />
+                                Reject
+                              </button>
+                            </div>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
               </div>
             </div>
           </div>
-        </div>
+        )}
+
+        {/* Pricing Plans Tab */}
+        {activeTab === 'pricing' && (
+          <div className="space-y-6">
+            {/* Header with Add Button */}
+            <div className="flex justify-between items-center">
+              <h2 className="text-xl font-semibold text-gray-900 dark:text-white">Pricing Plans</h2>
+              <button
+                onClick={() => {
+                  setEditingPlan(null);
+                  setShowPricingModal(true);
+                }}
+                className="inline-flex items-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+              >
+                <Plus className="h-4 w-4 mr-2" />
+                Add Plan
+              </button>
+            </div>
+
+            {/* Pricing Plans Grid */}
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              {pricingPlans.map((plan) => (
+                <div key={plan.id} className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-6">
+                  <div className="flex justify-between items-start mb-4">
+                    <div>
+                      <h3 className="text-lg font-semibold text-gray-900 dark:text-white">{plan.name}</h3>
+                      <p className="text-2xl font-bold text-gray-900 dark:text-white">
+                        Rs. {plan.currentPrice}
+                        {plan.basePrice !== plan.currentPrice && (
+                          <span className="text-sm text-gray-500 line-through ml-2">
+                            Rs. {plan.basePrice}
+                          </span>
+                        )}
+                      </p>
+                    </div>
+                    <div className="flex space-x-2">
+                      <button
+                        onClick={() => {
+                          setEditingPlan(plan);
+                          setShowPricingModal(true);
+                        }}
+                        className="p-1 text-blue-600 hover:bg-blue-100 rounded"
+                      >
+                        <Edit className="h-4 w-4" />
+                      </button>
+                      <button
+                        onClick={() => handleDeletePricingPlan(plan.id)}
+                        className="p-1 text-red-600 hover:bg-red-100 rounded"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </button>
+                    </div>
+                  </div>
+                  
+                  <div className="space-y-2 mb-4">
+                    <p className="text-sm text-gray-600 dark:text-gray-400">Duration: {plan.duration}</p>
+                    <p className="text-sm text-gray-600 dark:text-gray-400">
+                      Voices: {plan.voiceLimit === 999999 ? 'Unlimited' : plan.voiceLimit}
+                    </p>
+                    <p className="text-sm text-gray-600 dark:text-gray-400">
+                      Status: <span className={plan.isActive ? 'text-green-600' : 'text-red-600'}>
+                        {plan.isActive ? 'Active' : 'Inactive'}
+                      </span>
+                    </p>
+                  </div>
+
+                  {plan.discountType && (
+                    <div className="bg-green-50 dark:bg-green-900 p-3 rounded-lg mb-4">
+                      <p className="text-sm text-green-700 dark:text-green-300">
+                        {plan.discountType === 'percentage' ? `${plan.discountValue}% OFF` : `Rs. ${plan.discountValue} OFF`}
+                      </p>
+                      {plan.discountExpiry && (
+                        <p className="text-xs text-green-600 dark:text-green-400">
+                          Expires: {plan.discountExpiry.toLocaleDateString()}
+                        </p>
+                      )}
+                    </div>
+                  )}
+
+                  <div className="space-y-1">
+                    {plan.features.map((feature, index) => (
+                      <div key={index} className="flex items-center text-sm text-gray-600 dark:text-gray-400">
+                        <CheckCircle className="h-3 w-3 text-green-500 mr-2 flex-shrink-0" />
+                        {feature}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Broadcast Messages Tab */}
+        {activeTab === 'broadcast' && (
+          <div className="space-y-6">
+            {/* Header with Add Button */}
+            <div className="flex justify-between items-center">
+              <h2 className="text-xl font-semibold text-gray-900 dark:text-white">Broadcast Messages</h2>
+              <button
+                onClick={() => {
+                  setEditingBroadcast(null);
+                  setShowBroadcastModal(true);
+                }}
+                className="inline-flex items-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+              >
+                <Plus className="h-4 w-4 mr-2" />
+                New Message
+              </button>
+            </div>
+
+            {/* Broadcast Messages List */}
+            <div className="space-y-4">
+              {broadcastMessages.map((message) => (
+                <div key={message.id} className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-6">
+                  <div className="flex justify-between items-start">
+                    <div className="flex-1">
+                      <div className="flex items-center space-x-3 mb-2">
+                        <h3 className="text-lg font-semibold text-gray-900 dark:text-white">{message.title}</h3>
+                        <span className={`px-2 py-1 rounded-full text-xs font-medium ${
+                          message.active ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-700'
+                        }`}>
+                          {message.active ? 'Active' : 'Inactive'}
+                        </span>
+                      </div>
+                      <p className="text-gray-600 dark:text-gray-400 mb-3">{message.description}</p>
+                      <p className="text-sm text-gray-500">
+                        Created: {message.createdAt.toLocaleDateString()} • 
+                        Updated: {message.updatedAt.toLocaleDateString()}
+                      </p>
+                    </div>
+                    <div className="flex space-x-2 ml-4">
+                      <button
+                        onClick={() => {
+                          setEditingBroadcast(message);
+                          setShowBroadcastModal(true);
+                        }}
+                        className="p-2 text-blue-600 hover:bg-blue-100 rounded"
+                      >
+                        <Edit className="h-4 w-4" />
+                      </button>
+                      <button
+                        onClick={() => handleDeleteBroadcastMessage(message.id)}
+                        className="p-2 text-red-600 hover:bg-red-100 rounded"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Pricing Plan Modal */}
+      {showPricingModal && (
+        <PricingPlanModal
+          plan={editingPlan}
+          onSave={handleSavePricingPlan}
+          onClose={() => {
+            setShowPricingModal(false);
+            setEditingPlan(null);
+          }}
+        />
       )}
+
+      {/* Broadcast Message Modal */}
+      {showBroadcastModal && (
+        <BroadcastMessageModal
+          message={editingBroadcast}
+          onSave={handleSaveBroadcastMessage}
+          onClose={() => {
+            setShowBroadcastModal(false);
+            setEditingBroadcast(null);
+          }}
+        />
+      )}
+    </div>
+  );
+};
+
+// Pricing Plan Modal Component
+const PricingPlanModal: React.FC<{
+  plan: PricingPlan | null;
+  onSave: (plan: Partial<PricingPlan>) => void;
+  onClose: () => void;
+}> = ({ plan, onSave, onClose }) => {
+  const [formData, setFormData] = useState({
+    name: plan?.name || '',
+    basePrice: plan?.basePrice || 0,
+    currentPrice: plan?.currentPrice || 0,
+    duration: plan?.duration || '',
+    voiceLimit: plan?.voiceLimit || 0,
+    isActive: plan?.isActive ?? true,
+    popular: plan?.popular || false,
+    badge: plan?.badge || '',
+    icon: plan?.icon || 'Zap',
+    gradient: plan?.gradient || 'from-blue-500 to-cyan-500',
+    discountType: plan?.discountType || null,
+    discountValue: plan?.discountValue || 0,
+    discountExpiry: plan?.discountExpiry ? plan.discountExpiry.toISOString().split('T')[0] : '',
+    discountDescription: plan?.discountDescription || '',
+    features: plan?.features || ['']
+  });
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    
+    const planData = {
+      ...formData,
+      features: formData.features.filter(f => f.trim() !== ''),
+      discountExpiry: formData.discountExpiry ? new Date(formData.discountExpiry) : null,
+      discountType: formData.discountType === 'null' ? null : formData.discountType
+    };
+    
+    onSave(planData);
+  };
+
+  const addFeature = () => {
+    setFormData(prev => ({
+      ...prev,
+      features: [...prev.features, '']
+    }));
+  };
+
+  const updateFeature = (index: number, value: string) => {
+    setFormData(prev => ({
+      ...prev,
+      features: prev.features.map((f, i) => i === index ? value : f)
+    }));
+  };
+
+  const removeFeature = (index: number) => {
+    setFormData(prev => ({
+      ...prev,
+      features: prev.features.filter((_, i) => i !== index)
+    }));
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+      <div className="bg-white dark:bg-gray-800 rounded-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+        <div className="p-6">
+          <div className="flex justify-between items-center mb-6">
+            <h3 className="text-xl font-bold text-gray-900 dark:text-white">
+              {plan ? 'Edit Pricing Plan' : 'Create Pricing Plan'}
+            </h3>
+            <button onClick={onClose} className="text-gray-400 hover:text-gray-600">
+              <X className="h-5 w-5" />
+            </button>
+          </div>
+
+          <form onSubmit={handleSubmit} className="space-y-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                  Plan Name
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={formData.name}
+                  onChange={(e) => setFormData(prev => ({ ...prev, name: e.target.value }))}
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg dark:bg-gray-700 dark:text-white"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                  Duration
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={formData.duration}
+                  onChange={(e) => setFormData(prev => ({ ...prev, duration: e.target.value }))}
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg dark:bg-gray-700 dark:text-white"
+                  placeholder="e.g., 30 Days, 1 Month"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                  Base Price (Rs.)
+                </label>
+                <input
+                  type="number"
+                  required
+                  value={formData.basePrice}
+                  onChange={(e) => setFormData(prev => ({ ...prev, basePrice: parseInt(e.target.value) }))}
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg dark:bg-gray-700 dark:text-white"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                  Current Price (Rs.)
+                </label>
+                <input
+                  type="number"
+                  required
+                  value={formData.currentPrice}
+                  onChange={(e) => setFormData(prev => ({ ...prev, currentPrice: parseInt(e.target.value) }))}
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg dark:bg-gray-700 dark:text-white"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                  Voice Limit
+                </label>
+                <input
+                  type="number"
+                  required
+                  value={formData.voiceLimit}
+                  onChange={(e) => setFormData(prev => ({ ...prev, voiceLimit: parseInt(e.target.value) }))}
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg dark:bg-gray-700 dark:text-white"
+                  placeholder="999999 for unlimited"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                  Badge Text
+                </label>
+                <input
+                  type="text"
+                  value={formData.badge}
+                  onChange={(e) => setFormData(prev => ({ ...prev, badge: e.target.value }))}
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg dark:bg-gray-700 dark:text-white"
+                  placeholder="e.g., MOST POPULAR, BEST VALUE"
+                />
+              </div>
+            </div>
+
+            {/* Discount Settings */}
+            <div className="border-t pt-4">
+              <h4 className="text-lg font-medium text-gray-900 dark:text-white mb-3">Discount Settings</h4>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                    Discount Type
+                  </label>
+                  <select
+                    value={formData.discountType || 'null'}
+                    onChange={(e) => setFormData(prev => ({ ...prev, discountType: e.target.value === 'null' ? null : e.target.value as any }))}
+                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg dark:bg-gray-700 dark:text-white"
+                  >
+                    <option value="null">No Discount</option>
+                    <option value="percentage">Percentage</option>
+                    <option value="fixed">Fixed Amount</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                    Discount Value
+                  </label>
+                  <input
+                    type="number"
+                    value={formData.discountValue}
+                    onChange={(e) => setFormData(prev => ({ ...prev, discountValue: parseInt(e.target.value) }))}
+                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg dark:bg-gray-700 dark:text-white"
+                    disabled={!formData.discountType}
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                    Discount Expiry
+                  </label>
+                  <input
+                    type="date"
+                    value={formData.discountExpiry}
+                    onChange={(e) => setFormData(prev => ({ ...prev, discountExpiry: e.target.value }))}
+                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg dark:bg-gray-700 dark:text-white"
+                    disabled={!formData.discountType}
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* Features */}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                Features
+              </label>
+              <div className="space-y-2">
+                {formData.features.map((feature, index) => (
+                  <div key={index} className="flex items-center space-x-2">
+                    <input
+                      type="text"
+                      value={feature}
+                      onChange={(e) => updateFeature(index, e.target.value)}
+                      className="flex-1 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg dark:bg-gray-700 dark:text-white"
+                      placeholder="Enter feature"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => removeFeature(index)}
+                      className="p-2 text-red-600 hover:bg-red-100 rounded"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </button>
+                  </div>
+                ))}
+                <button
+                  type="button"
+                  onClick={addFeature}
+                  className="inline-flex items-center px-3 py-2 text-sm bg-blue-100 text-blue-700 rounded-lg hover:bg-blue-200"
+                >
+                  <Plus className="h-4 w-4 mr-1" />
+                  Add Feature
+                </button>
+              </div>
+            </div>
+
+            {/* Checkboxes */}
+            <div className="flex space-x-6">
+              <label className="flex items-center">
+                <input
+                  type="checkbox"
+                  checked={formData.isActive}
+                  onChange={(e) => setFormData(prev => ({ ...prev, isActive: e.target.checked }))}
+                  className="mr-2"
+                />
+                <span className="text-sm text-gray-700 dark:text-gray-300">Active</span>
+              </label>
+              <label className="flex items-center">
+                <input
+                  type="checkbox"
+                  checked={formData.popular}
+                  onChange={(e) => setFormData(prev => ({ ...prev, popular: e.target.checked }))}
+                  className="mr-2"
+                />
+                <span className="text-sm text-gray-700 dark:text-gray-300">Popular</span>
+              </label>
+            </div>
+
+            {/* Submit Buttons */}
+            <div className="flex space-x-3 pt-4">
+              <button
+                type="submit"
+                className="flex-1 bg-blue-600 text-white py-2 px-4 rounded-lg hover:bg-blue-700 flex items-center justify-center"
+              >
+                <Save className="h-4 w-4 mr-2" />
+                {plan ? 'Update Plan' : 'Create Plan'}
+              </button>
+              <button
+                type="button"
+                onClick={onClose}
+                className="flex-1 bg-gray-300 dark:bg-gray-600 text-gray-700 dark:text-gray-300 py-2 px-4 rounded-lg hover:bg-gray-400 dark:hover:bg-gray-500"
+              >
+                Cancel
+              </button>
+            </div>
+          </form>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// Broadcast Message Modal Component
+const BroadcastMessageModal: React.FC<{
+  message: BroadcastMessage | null;
+  onSave: (message: Partial<BroadcastMessage>) => void;
+  onClose: () => void;
+}> = ({ message, onSave, onClose }) => {
+  const [formData, setFormData] = useState({
+    title: message?.title || '',
+    description: message?.description || '',
+    active: message?.active ?? true
+  });
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    onSave(formData);
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+      <div className="bg-white dark:bg-gray-800 rounded-xl max-w-lg w-full">
+        <div className="p-6">
+          <div className="flex justify-between items-center mb-6">
+            <h3 className="text-xl font-bold text-gray-900 dark:text-white">
+              {message ? 'Edit Broadcast Message' : 'Create Broadcast Message'}
+            </h3>
+            <button onClick={onClose} className="text-gray-400 hover:text-gray-600">
+              <X className="h-5 w-5" />
+            </button>
+          </div>
+
+          <form onSubmit={handleSubmit} className="space-y-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                Title
+              </label>
+              <input
+                type="text"
+                required
+                value={formData.title}
+                onChange={(e) => setFormData(prev => ({ ...prev, title: e.target.value }))}
+                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg dark:bg-gray-700 dark:text-white"
+                placeholder="Enter message title"
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                Description
+              </label>
+              <textarea
+                required
+                value={formData.description}
+                onChange={(e) => setFormData(prev => ({ ...prev, description: e.target.value }))}
+                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg dark:bg-gray-700 dark:text-white"
+                rows={4}
+                placeholder="Enter message description"
+              />
+            </div>
+
+            <div>
+              <label className="flex items-center">
+                <input
+                  type="checkbox"
+                  checked={formData.active}
+                  onChange={(e) => setFormData(prev => ({ ...prev, active: e.target.checked }))}
+                  className="mr-2"
+                />
+                <span className="text-sm text-gray-700 dark:text-gray-300">Active</span>
+              </label>
+            </div>
+
+            <div className="flex space-x-3 pt-4">
+              <button
+                type="submit"
+                className="flex-1 bg-blue-600 text-white py-2 px-4 rounded-lg hover:bg-blue-700 flex items-center justify-center"
+              >
+                <Save className="h-4 w-4 mr-2" />
+                {message ? 'Update Message' : 'Create Message'}
+              </button>
+              <button
+                type="button"
+                onClick={onClose}
+                className="flex-1 bg-gray-300 dark:bg-gray-600 text-gray-700 dark:text-gray-300 py-2 px-4 rounded-lg hover:bg-gray-400 dark:hover:bg-gray-500"
+              >
+                Cancel
+              </button>
+            </div>
+          </form>
+        </div>
+      </div>
     </div>
   );
 };

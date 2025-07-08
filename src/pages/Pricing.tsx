@@ -77,9 +77,13 @@ const Pricing: React.FC = () => {
       });
       
       setDynamicPlans(validPlans);
+      
+      // If we have dynamic plans, use them; otherwise fall back to static plans
+      console.log(`📊 Loaded ${validPlans.length} dynamic pricing plans from Firestore`);
     } catch (error) {
       console.error('Error loading pricing plans:', error);
-      toast.error('Failed to load pricing plans');
+      // Don't show error toast, just fall back to static plans
+      console.log('📊 Falling back to static pricing plans');
     } finally {
       setLoading(false);
     }

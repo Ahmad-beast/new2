@@ -79,5 +79,49 @@ service cloud.firestore {
       // Allow admin panel to create and read pricing history
       allow read, write: if true;
     }
+
+    // Broadcast Messages collection for admin announcements
+    match /broadcastMessages/{messageId} {
+      // Allow admin panel full access for message management
+      allow read, write: if true;
+      
+      // Allow public read access for active messages
+      allow read: if resource.data.active == true;
+    }
+
+    // Voice Generations collection for tracking usage
+    match /voiceGenerations/{generationId} {
+      // Allow admin panel full access for analytics
+      allow read, write: if true;
+      
+      // Users can read their own generation records
+      allow read: if request.auth != null && 
+                     request.auth.uid == resource.data.uid;
+      
+      // Users can create their own generation records
+      allow create: if request.auth != null && 
+                       request.auth.uid == request.resource.data.uid;
+    }
+
+    // User Statistics collection for analytics
+    match /userStats/{statId} {
+      // Allow admin panel full access
+      allow read, write: if true;
+    }
+
+    // System Configuration collection
+    match /systemConfig/{configId} {
+      // Allow admin panel full access
+      allow read, write: if true;
+      
+      // Allow public read access for certain configs (like maintenance mode)
+      allow read: if resource.data.public == true;
+    }
+
+    // Audit Logs collection for tracking admin actions
+    match /auditLogs/{logId} {
+      // Allow admin panel to create and read audit logs
+      allow read, write: if true;
+    }
   }
 }
