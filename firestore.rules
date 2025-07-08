@@ -55,5 +55,29 @@ service cloud.firestore {
       allow read: if request.auth != null && 
                      request.auth.uid == resource.data.userId;
     }
+
+    // Pricing Plans collection for admin management
+    match /pricingPlans/{planId} {
+      // Allow admin panel full access for pricing management
+      allow read, write: if true;
+      
+      // Allow public read access for displaying pricing on the website
+      allow read: if true;
+    }
+
+    // Discount campaigns collection (if needed for advanced discount management)
+    match /discountCampaigns/{campaignId} {
+      // Allow admin panel full access
+      allow read, write: if true;
+      
+      // Allow public read access for active campaigns
+      allow read: if resource.data.isActive == true;
+    }
+
+    // Pricing history for audit trail (optional)
+    match /pricingHistory/{historyId} {
+      // Allow admin panel to create and read pricing history
+      allow read, write: if true;
+    }
   }
 }
